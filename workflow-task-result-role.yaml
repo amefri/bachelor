@@ -1,0 +1,9 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-task-result-creator-role
+  namespace: argo # Apply this role in the 'argo' namespace
+rules:
+- apiGroups: ["argoproj.io"]
+  resources: ["workflowtaskresults"]
+  verbs: ["create", "get", "patch"] # Grant create, plus get/patch for robustness

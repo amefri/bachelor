@@ -1,0 +1,4 @@
+pandas>=1.3
+boto3>=1.18
+fairlearn>=0.7 # Bias detection library as second option
+pyarrow

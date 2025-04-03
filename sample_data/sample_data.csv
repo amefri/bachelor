@@ -1,0 +1,11 @@
+feature1,feature2,sensitive_attr,target
+1.2,3.4,groupA,0
+0.8,2.1,groupB,1
+2.5,5.0,groupA,1
+-0.5,1.0,groupB,0
+1.9,4.2,groupA,1
+0.1,0.5,groupB,0
+3.0,6.1,groupA,0
+-1.0,0.0,groupB,1
+2.2,4.8,groupA,1
+1.5,3.7,groupB,1

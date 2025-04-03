@@ -1,0 +1,18 @@
+{
+  "group_statistics": {
+    "groupA": {
+      "positive_rate": 0.6,
+      "count": 5
+    },
+    "groupB": {
+      "positive_rate": 0.6,
+      "count": 5
+    }
+  },
+  "sensitive_features": [
+    "sensitive_attr"
+  ],
+  "target_column": "target",
+  "positive_rate_difference": 0.0,
+  "bias_check_status": "Passed"
+}
