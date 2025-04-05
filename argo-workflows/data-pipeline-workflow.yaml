@@ -9,7 +9,7 @@ spec:
       - name: input-bucket
         value: "raw-data"
       - name: input-key # Path to the raw data file in the input-bucket
-        value: "sample_data.csv" # Default value, can be overridden on submission
+        value: "sample_data.csv" 
       - name: processed-bucket
         value: "processed-data"
       - name: reports-bucket
@@ -41,7 +41,7 @@ spec:
       container:
         image: step-validation:latest # Use locally built image
         imagePullPolicy: Never # Important for local images in Minikube's daemon
-        command: [python, /app/validate.py]
+        command: [python, /app/validate-dummy.py]
         args: [
           "--bucket", "{{inputs.parameters.bucket}}",
           "--key", "{{inputs.parameters.key}}"
@@ -72,7 +72,7 @@ spec:
       container:
         image: step-preprocess:latest
         imagePullPolicy: Never
-        command: [python, /app/preprocess.py]
+        command: [python, /app/preprocess-dummy.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",

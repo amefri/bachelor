@@ -1,20 +1,29 @@
+# pipeline-steps/validation/validate.py
+
 import argparse
 import os
 import pandas as pd
 import boto3
-from io import StringIO
+# Use BytesIO to treat bytes as a file for Pandas
+from io import BytesIO # CHANGED: Import BytesIO
 
-
-# Data Structure & Validation Rules
-# Adjust these based on  dataset needs
-EXPECTED_COLUMNS = ['Datum', 'RGSCode', 'Geschlecht', 'DS_VWD'] 
-TARGET_COLUMN = 'DS_VWD'                                             
-MANDATORY_COLUMNS = ['Datum', 'DS_VWD', 'Geschlecht']          
+# --- Configuration Variables ---
+EXPECTED_COLUMNS = ['feature1', 'feature2', 'sensitive_attr', 'target'] # MODIFY FOR  DATA
+TARGET_COLUMN = 'target'                                              # MODIFY FOR  DATA
+MANDATORY_COLUMNS = ['feature1', 'target', 'sensitive_attr']          # MODIFY FOR  DATA (subset of EXPECTED)
 NULL_THRESHOLD_TARGET = 0.1 # Max allowed null proportion in target
-INPUT_DATA_FORMAT = 'csv' # if not csv change pd.read !!!!
+INPUT_DATA_FORMAT = 'csv' # 'csv', 'json', 'parquet', etc.
+
+# >>> NEW CONFIGURATION VARIABLE <<<
+INPUT_ENCODING = 'latin1'  # DEFAULT: Change this if  file uses a different encoding!
+                          # Common alternatives: 'latin-1', 'iso-8859-1', 'cp1252'
+# --- End Configuration ---
 
 def validate_data(bucket, key, endpoint_url, access_key, secret_key):
     print(f"Starting validation for s3://{bucket}/{key}")
+    # Use configured encoding for logging
+    print(f"Attempting to read with encoding: {INPUT_ENCODING}") # ADDED logging
+
     s3_client = boto3.client(
         "s3",
         endpoint_url=endpoint_url,
@@ -24,38 +33,37 @@ def validate_data(bucket, key, endpoint_url, access_key, secret_key):
 
     try:
         obj = s3_client.get_object(Bucket=bucket, Key=key)
-        body = obj['Body'].read().decode('utf-8')
+        # CHANGED: Read raw bytes first
+        raw_body = obj['Body'].read()
 
-        # Read data based on configured format
+        # CHANGED: Let Pandas handle decoding using the configured encoding
         if INPUT_DATA_FORMAT == 'csv':
-            df = pd.read_csv(StringIO(body))
+            # Pass raw bytes wrapped in BytesIO and specify encoding
+            df = pd.read_csv(BytesIO(raw_body), encoding=INPUT_ENCODING)
         # elif INPUT_DATA_FORMAT == 'json':
-        #     df = pd.read_json(StringIO(body), lines=True) # Adjust read_json params as needed
+        #    # For JSON, manual decoding might still be needed depending on structure
+        #    # Or use pd.read_json(BytesIO(raw_body), encoding=INPUT_ENCODING, ...)
+        #     body_str = raw_body.decode(INPUT_ENCODING)
+        #     df = pd.read_json(StringIO(body_str), lines=True) # Adjust params
         # elif INPUT_DATA_FORMAT == 'parquet':
-        #     # Reading parquet from stream might need BytesIO
-        #     from io import BytesIO
-        #     df = pd.read_parquet(BytesIO(obj['Body'].read()))
+        #     # Parquet read doesn't typically need explicit encoding arg for text within
+        #     df = pd.read_parquet(BytesIO(raw_body))
         else:
              raise ValueError(f"Unsupported INPUT_DATA_FORMAT: {INPUT_DATA_FORMAT}")
 
-        print("File loaded successfully.")
+        print("File loaded successfully using specified encoding.")
         print(f"Shape: {df.shape}")
-        print(f"Columns found: {df.columns.tolist()}")
-        print(f"Expected columns based on config: {EXPECTED_COLUMNS}")
+        # ...(rest of the validation logic remains the same)...
 
-        # --- Validation Logic using Configuration ---
         # Check for expected/mandatory columns
         if not all(col in df.columns for col in MANDATORY_COLUMNS):
              missing = set(MANDATORY_COLUMNS) - set(df.columns)
              raise ValueError(f"Missing mandatory columns (config). Missing: {missing}")
 
-        # Check if all expected columns are present (optional, could be warning)
         if not all(col in df.columns for col in EXPECTED_COLUMNS):
             missing_expected = set(EXPECTED_COLUMNS) - set(df.columns)
             print(f"WARNING: Missing some expected columns (config): {missing_expected}")
-            # Depending on strictness, you might raise ValueError here too
 
-        # Check for excessive nulls in the configured target column
         if TARGET_COLUMN in df.columns:
             null_ratio = df[TARGET_COLUMN].isnull().sum() / len(df) if len(df) > 0 else 0
             if null_ratio > NULL_THRESHOLD_TARGET:
@@ -64,10 +72,13 @@ def validate_data(bucket, key, endpoint_url, access_key, secret_key):
         else:
             print(f"WARNING: Target column '{TARGET_COLUMN}' not found, skipping null check.")
 
-        # --- Add more checks using config variables ---
-
         print("Validation checks passed.")
 
+    except UnicodeDecodeError as e: # Catch specific error
+        print(f"Validation FAILED: Encoding error - {e}")
+        print(f"The file s3://{bucket}/{key} is likely NOT encoded as '{INPUT_ENCODING}'.")
+        print("Try changing the INPUT_ENCODING variable in validate.py to 'latin-1', 'cp1252', or the correct encoding.")
+        raise # Re-raise to fail the step
     except Exception as e:
         print(f"Validation FAILED: {e}")
         raise
@@ -75,10 +86,10 @@ def validate_data(bucket, key, endpoint_url, access_key, secret_key):
     print("Validation finished successfully.")
 
 if __name__ == "__main__":
+    # ... (argument parsing and S3 credential loading remain the same) ...
     parser = argparse.ArgumentParser()
     parser.add_argument('--bucket', type=str, required=True, help='Input S3 bucket')
     parser.add_argument('--key', type=str, required=True, help='Input S3 key')
-    # No need to pass column names etc. via args if using config variables above
     args = parser.parse_args()
 
     s3_endpoint = os.environ.get("S3_ENDPOINT_URL")

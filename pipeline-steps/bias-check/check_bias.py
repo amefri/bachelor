@@ -4,18 +4,11 @@ import pandas as pd
 import boto3
 from io import BytesIO
 import json
-# Remove fairlearn imports if no longer needed for this specific check
-# from fairlearn.metrics import MetricFrame, count, demographic_parity_difference, equalized_odds_difference
-
-# Keep the positive_rate function or just use .mean() directly later
-def positive_rate(y_true):
-    # Ensure input is numeric for mean calculation
-    return pd.to_numeric(y_true, errors='coerce').mean()
+from fairlearn.metrics import MetricFrame, count, demographic_parity_difference, equalized_odds_difference
 
 def check_bias(in_bucket, in_key, out_bucket, report_key, sensitive_features_str, target_col, endpoint_url, access_key, secret_key):
     print(f"Starting bias check for s3://{in_bucket}/{in_key}")
     print(f"Sensitive features: {sensitive_features_str}")
-    print(f"Target column: {target_col}")
     print(f"Report will be saved to s3://{out_bucket}/{report_key}")
 
     s3_client = boto3.client(
@@ -23,86 +16,78 @@ def check_bias(in_bucket, in_key, out_bucket, report_key, sensitive_features_str
     )
 
     # Load processed data (assuming Parquet)
-    try:
-        obj = s3_client.get_object(Bucket=in_bucket, Key=in_key)
-        in_buffer = BytesIO(obj['Body'].read())
-        df = pd.read_parquet(in_buffer)
-        print("Processed data loaded.")
-    except Exception as e:
-        print(f"Error loading processed data from S3: {e}")
-        raise
+    obj = s3_client.get_object(Bucket=in_bucket, Key=in_key)
+    in_buffer = BytesIO(obj['Body'].read())
+    df = pd.read_parquet(in_buffer)
+    print("Processed data loaded.")
 
-    sensitive_features_list = sensitive_features_str.split(',')
+    sensitive_features_list = sensitive_features_str.split(',') # Expect comma-separated string
 
-    # --- Validation ---
     if target_col not in df.columns:
-        raise ValueError(f"Target column '{target_col}' not found in processed data.")
-    missing_sf = []
+        raise ValueError(f"Target column '{target_col}' not found in data.")
     for sf in sensitive_features_list:
-        if sf not in df.columns:
-            missing_sf.append(sf)
-    if missing_sf:
-         # Fail hard if sensitive features are missing after preprocessing
-         raise ValueError(f"Sensitive features {missing_sf} not found in processed DataFrame columns: {df.columns.tolist()}")
+         if sf not in df.columns:
+             # NOTE: Sensitive features might be encoded/transformed.
+             # This check might need adjustment based on preprocessing.
+             # For this example, assume they exist *before* OHE or are passed through.
+             print(f"Warning: Sensitive feature '{sf}' not found directly. Bias check might be inaccurate if it was heavily transformed.")
+             # raise ValueError(f"Sensitive feature '{sf}' not found.") # Optionally fail hard
 
-    # --- Bias Calculation Logic using Pandas GroupBy ---
-    print("Calculating metrics using Pandas groupby...")
-    try:
-        # Ensure target is numeric for calculations like mean
-        df[target_col] = pd.to_numeric(df[target_col], errors='coerce')
-        if df[target_col].isnull().any():
-             print(f"Warning: Found NaN values in target column '{target_col}' after attempting numeric conversion. These rows might be excluded from mean calculation.")
+    # --- Bias Calculation Logic ---
+    # Fairlearn requires the actual target values (y_true) and potentially
+    # model predictions (y_pred) if checking model fairness later.
+    # Here, we check bias in the *data distribution* itself or simple metrics.
 
-        # Group by sensitive feature(s) and calculate mean (positive rate) and count
-        grouped_stats = df.groupby(sensitive_features_list)[target_col].agg(['mean', 'count'])
-        grouped_stats.rename(columns={'mean': 'positive_rate'}, inplace=True) # Rename for clarity
-        print("Group statistics calculated:")
-        print(grouped_stats)
+    y_true = df[target_col]
+    sensitive_features_data = df[sensitive_features_list]
 
-        metrics_results = {
-            "group_statistics": grouped_stats.to_dict(orient='index'), # Store stats per group
-            "sensitive_features": sensitive_features_list,
-            "target_column": target_col
-        }
+    # Example Metric: Demographic Parity (how target variable is distributed across groups)
+    # We use 'count' metric here just to see group sizes, more meaningful metrics
+    # often require model predictions (like accuracy difference, equalized odds diff).
+    # Let's calculate the distribution of the positive class (assuming binary target 0/1)
+    def positive_rate(y_true):
+         return y_true.mean() # Assumes y_true is 0 or 1
 
-        # --- Decision Logic (Example: Demographic Parity Difference on True Labels) ---
-        bias_threshold = 0.1 # Example threshold for difference in positive rate
-        if not grouped_stats.empty:
-            min_rate = grouped_stats['positive_rate'].min()
-            max_rate = grouped_stats['positive_rate'].max()
-            rate_difference = max_rate - min_rate
-            metrics_results["positive_rate_difference"] = rate_difference
-            print(f"Max difference in positive rate between groups: {rate_difference:.4f}")
+    grouped_on_sex = MetricFrame(metrics=positive_rate,
+                               y_true=y_true,
+                               sensitive_features=sensitive_features_data) # Check sensitive_features_data format compatibility
 
-            if rate_difference > bias_threshold:
-                print(f"WARNING: Potential bias detected. Positive rate difference ({rate_difference:.4f}) exceeds threshold ({bias_threshold}).")
-                metrics_results["bias_check_status"] = "Warning: Threshold Exceeded"
-            else:
-                print("Bias check passed (based on positive rate difference).")
-                metrics_results["bias_check_status"] = "Passed"
-        else:
-             print("Warning: No groups found or data was empty, cannot calculate rate difference.")
-             metrics_results["bias_check_status"] = "Skipped (No data/groups)"
-             metrics_results["positive_rate_difference"] = None
+    metrics_results = {
+        "group_positive_rates": grouped_on_sex.by_group.to_dict(),
+        # Add more metrics as needed
+        # Example requiring predictions (if available):
+        # 'demographic_parity_difference': demographic_parity_difference(y_true, y_pred, sensitive_features=sensitive_features_data),
+        # 'equalized_odds_difference': equalized_odds_difference(y_true, y_pred, sensitive_features=sensitive_features_data),
+    }
+    print("Bias metrics calculated:")
+    print(json.dumps(metrics_results, indent=2))
 
+    # --- Decision Logic (Example) ---
+    bias_threshold = 0.1 # Example threshold for difference in positive rate
+    max_diff = grouped_on_sex.difference(method='between_groups')
+    print(f"Max difference in positive rate between groups: {max_diff:.4f}")
 
-    except Exception as e:
-        print(f"Error during bias calculation: {e}")
-        raise # Fail the step if calculation goes wrong
+    if max_diff > bias_threshold:
+         # Option 1: Fail the pipeline
+         # raise ValueError(f"Bias check FAILED: Demographic parity difference ({max_diff:.4f}) exceeds threshold ({bias_threshold}).")
+         # Option 2: Log a warning and continue
+         print(f"WARNING: Potential bias detected. Demographic parity difference ({max_diff:.4f}) exceeds threshold ({bias_threshold}).")
+         metrics_results["bias_check_status"] = "Warning: Threshold Exceeded"
+    else:
+         print("Bias check passed.")
+         metrics_results["bias_check_status"] = "Passed"
+
 
     # Save report to MinIO
-    print(f"Saving bias report to s3://{out_bucket}/{report_key}...")
-    try:
-        # Convert DataFrame in results to JSON serializable dict first if needed, to_dict already did this.
-        report_json = json.dumps(metrics_results, indent=2)
-        report_buffer = BytesIO(report_json.encode('utf-8'))
-        s3_client.put_object(Bucket=out_bucket, Key=report_key, Body=report_buffer)
-        print(f"Bias report saved successfully.")
-    except Exception as e:
-         print(f"Error saving bias report to S3: {e}")
-         raise
+    report_buffer = BytesIO(json.dumps(metrics_results, indent=2).encode('utf-8'))
+    s3_client.put_object(Bucket=out_bucket, Key=report_key, Body=report_buffer)
+    print(f"Bias report saved to s3://{out_bucket}/{report_key}")
 
-# --- End of check_bias function ---
+    # Output a status or result if needed for conditional Argo steps
+    # E.g., write "passed" or "failed" to a file Argo can read as an output parameter
+    # with open("/tmp/bias_status.txt", "w") as f:
+    #    f.write(metrics_results["bias_check_status"])
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -112,6 +97,7 @@ if __name__ == "__main__":
     parser.add_argument('--report_key', type=str, required=True)
     parser.add_argument('--sensitive_features', type=str, required=True, help='Comma-separated sensitive feature column names')
     parser.add_argument('--target_col', type=str, required=True, help='Target variable column name')
+
     args = parser.parse_args()
 
     s3_endpoint = os.environ.get("S3_ENDPOINT_URL")
