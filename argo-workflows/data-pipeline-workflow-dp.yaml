@@ -9,7 +9,7 @@ spec:
       - name: input-bucket
         value: "raw-data"
       - name: input-key # Path to the raw data file in the input-bucket
-        value: "sample_data.csv" 
+        value: "sample_data.csv" # Default value, can be overridden on submission
       - name: processed-bucket
         value: "processed-data"
       - name: reports-bucket
@@ -48,7 +48,7 @@ spec:
         ]
         env: # --- CORRECTED ENV BLOCK ---
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.default.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -81,7 +81,7 @@ spec:
         ]
         env: # --- CORRECTED ENV BLOCK ---
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.default.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -118,7 +118,7 @@ spec:
         ]
         env: # --- CORRECTED ENV BLOCK ---
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.default.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -158,7 +158,7 @@ spec:
         ]
         env: # --- CORRECTED ENV BLOCK ---
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.default.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:

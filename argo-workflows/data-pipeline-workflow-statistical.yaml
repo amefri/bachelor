@@ -1,0 +1,266 @@
+# to change .py script names, update the image build process accordingly
+# and ensure the correct script is referenced in the workflow.
+# This workflow is designed to run in an Argo Workflows environment
+# with MinIO as the S3-compatible storage backend.
+# The workflow consists of several steps:
+# 1. Validate the input data.
+# 2. Preprocess the data. 
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: data-pipeline- # Argo will add a random suffix
+spec:
+  entrypoint: data-pipeline-dag
+  arguments:
+    parameters:
+      # --- Core Parameters ---
+      - name: input-bucket
+        value: "raw-data"
+      - name: input-key # Path to the raw data file in the input-bucket
+        value: "sample_data.csv" # Default value, OVERRIDE when submitting for your data
+      - name: processed-bucket
+        value: "processed-data"
+      - name: reports-bucket
+        value: "reports"
+      - name: feature-bucket
+        value: "feature-store"
+      - name: processed-key-suffix
+        value: "-processed.parquet"
+      - name: bias-report-key-suffix
+        value: "-bias-report.json"
+      - name: train-key-suffix
+        value: "-train.parquet"
+      - name: test-key-suffix
+        value: "-test.parquet"
+      - name: val-key-suffix
+        value: "-val.parquet"
+      # --- Parameters for Bias Check (Leitner) ---
+      - name: target-column          # General target column, used by bias check and splitting
+        value: "target"
+      - name: leitner-sensitive-col # Specific column for Leitner check
+        value: "sensitive_attr"     # MODIFY default if needed
+      - name: leitner-group-value   # Specific group value for Leitner check
+        value: "groupA"             # MODIFY default if needed
+      - name: leitner-positive-target-value # Value (as string) for positive outcome in Leitner
+        value: "1"                  # MODIFY default if needed (e.g., "True", "Approved")
+      - name: bias-threshold        # Threshold for Leitner divergence magnitude
+        value: "0.1"                # MODIFY default if needed
+
+  templates:
+    # ----------------- VALIDATION STEP -----------------
+    - name: validate-data
+      inputs:
+        parameters:
+          - name: bucket
+          - name: key
+      container:
+        # Assuming validate-dummy.py exists and handles S3 creds via env vars
+        image: step-validation:latest
+        imagePullPolicy: Never
+        command: [python, /app/validate-dummy.py] # Changed back, assuming dummy was temporary
+        args: [
+          "--bucket", "{{inputs.parameters.bucket}}",
+          "--key", "{{inputs.parameters.key}}"
+        ]
+        env: # S3 Credentials via Env Vars
+          - name: S3_ENDPOINT_URL
+            # IMPORTANT: Verify MinIO service name and namespace (default? argo?)
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets # Ensure this secret exists in the namespace the workflow runs in
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- PREPROCESSING STEP -----------------
+    - name: preprocess-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket
+          - name: out_key
+      container:
+        # Assuming preprocess-dummy.py exists and handles S3 creds via env vars
+        image: step-preprocess:latest
+        imagePullPolicy: Never
+        command: [python, /app/preprocess-dummy.py] # Changed back, assuming dummy was temporary
+        args: [
+          "--in_bucket", "{{inputs.parameters.in_bucket}}",
+          "--in_key", "{{inputs.parameters.in_key}}",
+          "--out_bucket", "{{inputs.parameters.out_bucket}}",
+          "--out_key", "{{inputs.parameters.out_key}}"
+        ]
+        env: # S3 Credentials via Env Vars
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- BIAS CHECK STEP (Leitner Version - CORRECTED) -----------------
+    - name: check-bias # Template definition
+      inputs:
+        parameters: # Parameters this template ACCEPTS
+          - name: p_in_bucket
+          - name: p_in_key
+          - name: p_out_bucket
+          - name: p_report_key
+          - name: p_leitner_sensitive_col
+          - name: p_leitner_group_value
+          - name: p_target_col
+          - name: p_leitner_positive_target_value
+          - name: p_bias_threshold
+      container:
+        image: step-bias-check:latest # Image containing check_bias-leitner.py
+        imagePullPolicy: Never
+        # Ensure this is the correct script name from your Docker image
+        command: [python, /app/check_bias.py] # Assuming you renamed the script back or this is the correct name
+        args: [ # Command-line flags passed to the Python script
+          "--in_bucket={{inputs.parameters.p_in_bucket}}",
+          "--in_key={{inputs.parameters.p_in_key}}",
+          "--out_bucket={{inputs.parameters.p_out_bucket}}",
+          "--report_key={{inputs.parameters.p_report_key}}",
+          # Pass Leitner specific args required by the script
+          "--leitner_sensitive_col={{inputs.parameters.p_leitner_sensitive_col}}",
+          "--leitner_group_value={{inputs.parameters.p_leitner_group_value}}",
+          "--target_col={{inputs.parameters.p_target_col}}",
+          "--leitner_positive_target_value={{inputs.parameters.p_leitner_positive_target_value}}",
+          "--bias_threshold={{inputs.parameters.p_bias_threshold}}"
+        ]
+        env: # S3 Credentials via Env Vars
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- DATA SPLITTING STEP -----------------
+    - name: split-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket # For splits
+          - name: train_key
+          - name: test_key
+          - name: val_key
+          - name: target_col # Accepts target column name
+      container:
+        image: step-split-data:latest
+        imagePullPolicy: Never
+        command: [python, /app/split_data.py]
+        args: [
+          "--in_bucket={{inputs.parameters.in_bucket}}",
+          "--in_key={{inputs.parameters.in_key}}",
+          "--out_bucket={{inputs.parameters.out_bucket}}",
+          "--train_key={{inputs.parameters.train_key}}",
+          "--test_key={{inputs.parameters.test_key}}",
+          "--val_key={{inputs.parameters.val_key}}",
+          "--target_col={{inputs.parameters.target_col}}" # Pass target column to script
+          # Add --test_size, --val_size, --random_state args here if needed by script
+        ]
+        env: # S3 Credentials via Env Vars
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- PIPELINE DAG DEFINITION (CORRECTED TASK CALL) -----------------
+    - name: data-pipeline-dag
+      dag:
+        tasks:
+          - name: validate
+            template: validate-data
+            arguments:
+              parameters: # Pass bucket and key TO the validate-data template
+              - name: bucket # Matches input param name in validate-data template
+                value: "{{workflow.parameters.input-bucket}}"
+              - name: key # Matches input param name in validate-data template
+                value: "{{workflow.parameters.input-key}}"
+
+          - name: preprocess
+            template: preprocess-data
+            dependencies: [validate]
+            arguments:
+              parameters: # Pass args TO the preprocess-data template
+              - name: in_bucket # Matches input param name
+                value: "{{workflow.parameters.input-bucket}}"
+              - name: in_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}"
+              - name: out_bucket # Matches input param name
+                value: "{{workflow.parameters.processed-bucket}}"
+              - name: out_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+
+          - name: bias-check # Task invocation
+            template: check-bias # Calls the check-bias template
+            dependencies: [preprocess]
+            arguments:
+              parameters: # Pass arguments TO the check-bias template, using its input names (p_... convention used above)
+              - name: p_in_bucket # Matches input param name in check-bias template
+                value: "{{workflow.parameters.processed-bucket}}"
+              - name: p_in_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+              - name: p_out_bucket # Matches input param name
+                value: "{{workflow.parameters.reports-bucket}}"
+              - name: p_report_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
+              # --- Pass Leitner parameters from workflow ---
+              - name: p_leitner_sensitive_col # Matches input param name
+                value: "{{workflow.parameters.leitner-sensitive-col}}" # Get value from global workflow param
+              - name: p_leitner_group_value # Matches input param name
+                value: "{{workflow.parameters.leitner-group-value}}" # Get value from global workflow param
+              - name: p_target_col # Matches input param name
+                value: "{{workflow.parameters.target-column}}" # Get value from global workflow param
+              - name: p_leitner_positive_target_value # Matches input param name
+                value: "{{workflow.parameters.leitner-positive-target-value}}" # Get value from global workflow param
+              - name: p_bias_threshold # Matches input param name
+                value: "{{workflow.parameters.bias-threshold}}" # Get value from global workflow param
+
+          - name: split
+            template: split-data
+            dependencies: [bias-check]
+            arguments:
+              parameters: # Pass arguments TO the split-data template
+              - name: in_bucket # Matches input param name
+                value: "{{workflow.parameters.processed-bucket}}"
+              - name: in_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+              - name: out_bucket # Matches input param name
+                value: "{{workflow.parameters.feature-bucket}}"
+              - name: train_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"
+              - name: test_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.test-key-suffix}}"
+              - name: val_key # Matches input param name
+                value: "{{workflow.parameters.input-key}}{{workflow.parameters.val-key-suffix}}"
+              - name: target_col # Matches input param name
+                value: "{{workflow.parameters.target-column}}" # Pass the target column name
