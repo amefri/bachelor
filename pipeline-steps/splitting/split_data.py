@@ -57,6 +57,16 @@ def split_data(in_bucket, in_key, out_bucket, train_key, test_key, val_key, targ
     train_df = pd.concat([X_train, y_train], axis=1)
     val_df = pd.concat([X_val, y_val], axis=1)
     test_df = pd.concat([X_test, y_test], axis=1)
+    # Limit rows for testing purposes
+    MAX_TRAIN_ROWS = 5000
+    MAX_VAL_ROWS = 2000
+    MAX_TEST_ROWS = 2000
+
+    train_df = train_df.sample(n=min(MAX_TRAIN_ROWS, len(train_df)), random_state=random_state)
+    val_df = val_df.sample(n=min(MAX_VAL_ROWS, len(val_df)), random_state=random_state)
+    test_df = test_df.sample(n=min(MAX_TEST_ROWS, len(test_df)), random_state=random_state)
+
+    print(f"📉 Sampled datasets: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
 
     for df_split, key in zip([train_df, val_df, test_df], [train_key, val_key, test_key]):
         # Avoid saving empty dataframes if splits resulted in zero rows

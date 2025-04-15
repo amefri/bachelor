@@ -1,0 +1,30 @@
+{
+  "check_type": "Regression Bias Check",
+  "input_data": "s3://processed-data/estat_tipsun20_en.csv-processed.parquet",
+  "sensitive_features_used": [
+    "sex"
+  ],
+  "target_column": "OBS_VALUE",
+  "prediction_column": "pred_col",
+  "metrics_by_group": [
+    {
+      "mean_prediction": 11.499023364485986,
+      "MAE": 1.0090794392523372,
+      "RMSE": 1.596538795697815
+    }
+  ],
+  "disparity_metrics": {
+    "difference": {
+      "mean_prediction": 0.0,
+      "MAE": 0.0,
+      "RMSE": 0.0
+    }
+  },
+  "bias_check_status": "Passed (Disparities within thresholds)",
+  "error_message": null,
+  "overall_metrics": {
+    "mean_prediction": 11.499023364485986,
+    "MAE": 1.0090794392523372,
+    "RMSE": 1.596538795697815
+  }
+}

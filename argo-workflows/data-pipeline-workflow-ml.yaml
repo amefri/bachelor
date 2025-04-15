@@ -1,0 +1,313 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: data-pipeline-
+spec:
+  entrypoint: data-pipeline-dag
+  arguments:
+    parameters:
+      - name: input-bucket
+        value: "raw-data"
+      - name: input-key
+        value: "ams-data.csv"
+      - name: processed-bucket
+        value: "processed-data"
+      - name: reports-bucket
+        value: "reports"
+      - name: feature-bucket
+        value: "feature-store"
+      - name: processed-key-suffix
+        value: "-processed.parquet"
+      - name: bias-report-key-suffix
+        value: "-bias-report.json"
+      - name: train-key-suffix
+        value: "-train.parquet"
+      - name: test-key-suffix
+        value: "-test.parquet"
+      - name: val-key-suffix
+        value: "-val.parquet"
+      - name: sensitive-features
+        value: "sensitive_attr"
+      - name: target-column
+        value: "target"
+      - name: prediction-column  # Hier definierst du den Prediction Column
+        value: "pred_col" 
+
+  templates:
+    # ----------------- VALIDATE -----------------
+    - name: validate-data
+      inputs:
+        parameters:
+          - name: bucket
+          - name: key
+      container:
+        image: step-validation:latest
+        imagePullPolicy: Never
+        command: [python, /app/validate-eu.py]
+        args: [
+          "--bucket", "{{inputs.parameters.bucket}}",
+          "--key", "{{inputs.parameters.key}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- PREPROCESS -----------------
+    - name: preprocess-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket
+          - name: out_key
+      container:
+        image: step-preprocess:latest
+        imagePullPolicy: Never
+        command: [python, /app/preprocess-eu.py]
+        args: [
+          "--in_bucket", "{{inputs.parameters.in_bucket}}",
+          "--in_key", "{{inputs.parameters.in_key}}",
+          "--out_bucket", "{{inputs.parameters.out_bucket}}",
+          "--out_key", "{{inputs.parameters.out_key}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- SPLIT -----------------
+    - name: split-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket
+          - name: train_key
+          - name: test_key
+          - name: val_key
+          - name: target_col
+      container:
+        image: step-split-data:latest
+        imagePullPolicy: Never
+        command: [python, /app/split_data.py]
+        args: [
+          "--in_bucket", "{{inputs.parameters.in_bucket}}",
+          "--in_key", "{{inputs.parameters.in_key}}",
+          "--out_bucket", "{{inputs.parameters.out_bucket}}",
+          "--train_key", "{{inputs.parameters.train_key}}",
+          "--test_key", "{{inputs.parameters.test_key}}",
+          "--val_key", "{{inputs.parameters.val_key}}",
+          "--target_col", "{{inputs.parameters.target_col}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+
+    # ----------------- TRAIN MODEL -----------------
+    - name: train-model
+      inputs:
+        parameters:
+          - name: train_bucket
+          - name: train_key
+          - name: test_bucket
+          - name: test_key
+          - name: pred_bucket  # Bucket to save test data + predictions
+          - name: pred_key     # Key for the output file with predictions
+          - name: target_col
+          - name: pred_col_name # <<< ADDED: Parameter for the desired prediction column name
+      container:
+        image: step-ml:latest
+        imagePullPolicy: Never
+        # Assuming /app/modell.py is the train_predict.py script shown earlier
+        command: [python, /app/modell.py] # Or /app/train_predict.py if that's the actual name
+        args: [
+          "--train_bucket", "{{inputs.parameters.train_bucket}}",
+          "--train_key", "{{inputs.parameters.train_key}}",
+          "--test_bucket", "{{inputs.parameters.test_bucket}}",
+          "--test_key", "{{inputs.parameters.test_key}}",
+          "--pred_bucket", "{{inputs.parameters.pred_bucket}}", # Will receive the correct bucket
+          "--pred_key", "{{inputs.parameters.pred_key}}",       # Will receive the correct key
+          "--target_col", "{{inputs.parameters.target_col}}",
+          "--pred_col_name", "{{inputs.parameters.pred_col_name}}" # <<< ADDED: Pass the name to the script
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+        resources:
+          requests:
+           memory: "1Gi"
+          limits:
+            memory: "6Gi"
+
+    # ----------------- CHECK BIAS -----------------
+    # (check-bias template is likely correct as it already receives pred_col parameter)
+    - name: check-bias
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket
+          - name: report_key
+          - name: sensitive_features
+          - name: target_col
+          - name: pred_col # This is the name check-bias-eo.py expects internally
+      container:
+        image: step-check-bias:latest
+        imagePullPolicy: Never
+        command: [python, /app/check-bias-eo.py]
+        args: [
+          "--in_bucket", "{{inputs.parameters.in_bucket}}",
+          "--in_key", "{{inputs.parameters.in_key}}",
+          "--out_bucket", "{{inputs.parameters.out_bucket}}",
+          "--report_key", "{{inputs.parameters.report_key}}",
+          "--sensitive_features", "{{inputs.parameters.sensitive_features}}",
+          "--target_col", "{{inputs.parameters.target_col}}",
+          # This arg tells check-bias-eo.py which column *in the input file* holds the predictions
+          "--pred_col", "{{inputs.parameters.pred_col}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootUser
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secrets
+                key: rootPassword
+  # ----------------- DAG -----------------
+
+    - name: data-pipeline-dag
+      dag:
+        tasks:
+          - name: validate
+            template: validate-data
+            arguments:
+              parameters:
+                - name: bucket
+                  value: "{{workflow.parameters.input-bucket}}"
+                - name: key
+                  value: "{{workflow.parameters.input-key}}"
+
+          - name: preprocess
+            template: preprocess-data
+            dependencies: [validate]
+            arguments:
+              parameters:
+                - name: in_bucket
+                  value: "{{workflow.parameters.input-bucket}}"
+                - name: in_key
+                  value: "{{workflow.parameters.input-key}}"
+                - name: out_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: out_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+
+          - name: split
+            template: split-data
+            dependencies: [preprocess]
+            arguments:
+              parameters:
+                - name: in_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: in_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: out_bucket
+                  value: "{{workflow.parameters.feature-bucket}}"
+                - name: train_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"
+                - name: test_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.test-key-suffix}}"
+                - name: val_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.val-key-suffix}}"
+                - name: target_col
+                  value: "{{workflow.parameters.target-column}}"
+
+          - name: train
+            template: train-model
+            dependencies: [split]
+            arguments:
+              parameters:
+                - name: train_bucket
+                  value: "{{workflow.parameters.feature-bucket}}"
+                - name: train_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"
+                - name: target_col
+                  value: "{{workflow.parameters.target-column}}"
+                - name: test_bucket  # Bucket containing the test data to predict on
+                  value: "{{workflow.parameters.feature-bucket}}"
+                - name: test_key     # Key of the test data to predict on
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.test-key-suffix}}"
+                # --- VVV CHANGES HERE VVV ---
+                - name: pred_bucket  # Bucket where the output (test + predictions) should be saved
+                  # Save it where bias-check expects its input
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: pred_key     # Key for the output file (test + predictions)
+                  # Use the same key that bias-check expects as input
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: pred_col_name # <<< ADDED: Tell the training script what to name the prediction column
+                  # Use the workflow parameter defined for the prediction column name
+                  value: "{{workflow.parameters.prediction-column}}" # This is 'pred_col'
+                # --- ^^^ CHANGES HERE ^^^ ---
+
+          - name: bias-check
+            template: check-bias
+            dependencies: [train] # Depends on the train step completing successfully
+            arguments:
+              parameters:
+                - name: in_bucket # Read from the bucket where 'train' saved its output
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: in_key    # Read the key that 'train' saved its output to
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: out_bucket
+                  value: "{{workflow.parameters.reports-bucket}}"
+                - name: report_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
+                - name: sensitive_features
+                  value: "{{workflow.parameters.sensitive-features}}"
+                - name: target_col
+                  value: "{{workflow.parameters.target-column}}"
+                - name: pred_col # Tell the bias script the name of the prediction column to look for
+                  value: "{{workflow.parameters.prediction-column}}" # This is 'pred_col' # Übergib den Prediction Column an den Bias-Check

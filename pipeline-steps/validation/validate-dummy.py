@@ -4,7 +4,10 @@ import pandas as pd
 import boto3
 from io import StringIO
 
-
+feature1 = "Datum"
+feature2 = 'RGSCode'
+sensitive_attr = 'Geschlecht' 
+target = 'DS_VWD'
 
 
 def validate_data(bucket, key, endpoint_url, access_key, secret_key):
@@ -37,7 +40,7 @@ def validate_data(bucket, key, endpoint_url, access_key, secret_key):
             raise ValueError("Excessive null values found in 'target' column.")
 
         print("Validation checks passed.")
-        # In a real scenario, might output a status file or just rely on logs/exit code
+        
 
     except Exception as e:
         print(f"Validation FAILED: {e}")

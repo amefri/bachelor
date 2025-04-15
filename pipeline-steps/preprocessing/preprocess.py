@@ -55,6 +55,10 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
             if INPUT_FORMAT == 'csv':
              delimiter=';' 
             df = pd.read_csv(BytesIO(raw_body), encoding=INPUT_ENCODING, delimiter=delimiter)
+            if SENSITIVE_COLUMN in df.columns:
+                geschlecht_map = {'Männer': 1, 'Frauen': 2}
+                df[SENSITIVE_COLUMN] = df[SENSITIVE_COLUMN].map(geschlecht_map)
+                print(f"Encoded '{SENSITIVE_COLUMN}' using map: {geschlecht_map}")
             # Add other options like delimiter if needed
           
         # Add elif for other INPUT_FORMAT if needed

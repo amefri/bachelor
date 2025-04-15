@@ -1,10 +1,6 @@
 # to change .py script names, update the image build process accordingly
-# and ensure the correct script is referenced in the workflow.
-# This workflow is designed to run in an Argo Workflows environment
-# with MinIO as the S3-compatible storage backend.
-# The workflow consists of several steps:
-# 1. Validate the input data.
-# 2. Preprocess the data. 
+# and ensure the correct script is referenced in the workflow.:
+
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
@@ -34,14 +30,14 @@ spec:
         value: "-test.parquet"
       - name: val-key-suffix
         value: "-val.parquet"
-      # --- Parameters for Bias Check (Leitner) ---
+    
       - name: target-column          # General target column, used by bias check and splitting
         value: "target"
-      - name: leitner-sensitive-col # Specific column for Leitner check
+      - name: leitner-sensitive-col # Specific column
         value: "sensitive_attr"     # MODIFY default if needed
-      - name: leitner-group-value   # Specific group value for Leitner check
+      - name: leitner-group-value   # Specific group value 
         value: "groupA"             # MODIFY default if needed
-      - name: leitner-positive-target-value # Value (as string) for positive outcome in Leitner
+      - name: leitner-positive-target-value # Value (as string) for positive outcom
         value: "1"                  # MODIFY default if needed (e.g., "True", "Approved")
       - name: bias-threshold        # Threshold for Leitner divergence magnitude
         value: "0.1"                # MODIFY default if needed
@@ -54,10 +50,10 @@ spec:
           - name: bucket
           - name: key
       container:
-        # Assuming validate-dummy.py exists and handles S3 creds via env vars
+       
         image: step-validation:latest
         imagePullPolicy: Never
-        command: [python, /app/validate-dummy.py] # Changed back, assuming dummy was temporary
+        command: [python, /app/validate-dummy.py]
         args: [
           "--bucket", "{{inputs.parameters.bucket}}",
           "--key", "{{inputs.parameters.key}}"
@@ -89,7 +85,7 @@ spec:
         # Assuming preprocess-dummy.py exists and handles S3 creds via env vars
         image: step-preprocess:latest
         imagePullPolicy: Never
-        command: [python, /app/preprocess-dummy.py] # Changed back, assuming dummy was temporary
+        command: [python, /app/preprocess-dummy.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
@@ -110,7 +106,7 @@ spec:
                 name: minio-secrets
                 key: rootPassword
 
-    # ----------------- BIAS CHECK STEP (Leitner Version - CORRECTED) -----------------
+    # ----------------- BIAS CHECK STEP  -----------------
     - name: check-bias # Template definition
       inputs:
         parameters: # Parameters this template ACCEPTS
@@ -124,16 +120,16 @@ spec:
           - name: p_leitner_positive_target_value
           - name: p_bias_threshold
       container:
-        image: step-bias-check:latest # Image containing check_bias-leitner.py
+        image: step-bias-check:latest # Image containing 
         imagePullPolicy: Never
         # Ensure this is the correct script name from your Docker image
-        command: [python, /app/check_bias.py] # Assuming you renamed the script back or this is the correct name
+        command: [python, /app/check_bias.py] 
         args: [ # Command-line flags passed to the Python script
           "--in_bucket={{inputs.parameters.p_in_bucket}}",
           "--in_key={{inputs.parameters.p_in_key}}",
           "--out_bucket={{inputs.parameters.p_out_bucket}}",
           "--report_key={{inputs.parameters.p_report_key}}",
-          # Pass Leitner specific args required by the script
+         
           "--leitner_sensitive_col={{inputs.parameters.p_leitner_sensitive_col}}",
           "--leitner_group_value={{inputs.parameters.p_leitner_group_value}}",
           "--target_col={{inputs.parameters.p_target_col}}",
@@ -193,24 +189,24 @@ spec:
                 name: minio-secrets
                 key: rootPassword
 
-    # ----------------- PIPELINE DAG DEFINITION (CORRECTED TASK CALL) -----------------
+    # ----------------- PIPELINE DAG DEFINITION -----------------
     - name: data-pipeline-dag
       dag:
         tasks:
           - name: validate
             template: validate-data
             arguments:
-              parameters: # Pass bucket and key TO the validate-data template
-              - name: bucket # Matches input param name in validate-data template
+              parameters: 
+              - name: bucket 
                 value: "{{workflow.parameters.input-bucket}}"
-              - name: key # Matches input param name in validate-data template
+              - name: key
                 value: "{{workflow.parameters.input-key}}"
 
           - name: preprocess
             template: preprocess-data
             dependencies: [validate]
             arguments:
-              parameters: # Pass args TO the preprocess-data template
+              parameters:
               - name: in_bucket # Matches input param name
                 value: "{{workflow.parameters.input-bucket}}"
               - name: in_key # Matches input param name
@@ -224,7 +220,7 @@ spec:
             template: check-bias # Calls the check-bias template
             dependencies: [preprocess]
             arguments:
-              parameters: # Pass arguments TO the check-bias template, using its input names (p_... convention used above)
+              parameters: 
               - name: p_in_bucket # Matches input param name in check-bias template
                 value: "{{workflow.parameters.processed-bucket}}"
               - name: p_in_key # Matches input param name
@@ -233,7 +229,7 @@ spec:
                 value: "{{workflow.parameters.reports-bucket}}"
               - name: p_report_key # Matches input param name
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
-              # --- Pass Leitner parameters from workflow ---
+             
               - name: p_leitner_sensitive_col # Matches input param name
                 value: "{{workflow.parameters.leitner-sensitive-col}}" # Get value from global workflow param
               - name: p_leitner_group_value # Matches input param name

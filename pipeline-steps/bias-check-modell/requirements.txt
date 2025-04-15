@@ -1,0 +1,12 @@
+# Data handling
+pandas>=1.3
+pyarrow  # Für Parquet-Dateien
+
+# AWS S3 Access
+boto3>=1.18
+
+# Bias & Fairness
+fairlearn>=0.7
+
+# Machine Learning
+scikit-learn>=1.0  

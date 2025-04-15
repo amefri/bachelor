@@ -22,7 +22,7 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
         print(f"Error loading data from S3: {e}")
         raise # Re-raise the exception to fail the step
 
-    # --- CORRECTED Preprocessing Logic ---
+    # --- Preprocessing Logic ---
     target_col = 'target' # Define target column name
     sensitive_col = 'sensitive_attr' # Define sensitive column name
 
@@ -47,13 +47,7 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
     print(f"Numerical columns to process in X: {numerical_cols.tolist()}")
     print(f"Categorical columns to process in X: {categorical_cols.tolist()}")
 
-    # Create preprocessing pipelines for numerical and categorical features *in X*
-    # Using Pipeline helps if you want multiple steps, e.g., Imputer + Scaler
-    # from sklearn.pipeline import Pipeline
-    # numerical_transformer = Pipeline(steps=[
-    #     ('imputer', SimpleImputer(strategy='median')),
-    #     # ('scaler', StandardScaler()) # Uncomment if scaling needed
-    # ])
+  
     numerical_transformer = SimpleImputer(strategy='median') # Simpler if just imputing
 
     categorical_transformer = OneHotEncoder(handle_unknown='ignore', sparse_output=False) # sparse_output=False often easier
