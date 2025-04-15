@@ -1,0 +1,14 @@
+{
+  "selection_rate_by_group": {
+    "Frauen": 0.15963141104076103,
+    "M\u00e4nner": 0.15513831899964853
+  },
+  "overall_selection_rate": 0.15732926019622223,
+  "demographic_parity_difference": 0.004493092041112506,
+  "bias_check_status": "Passed",
+  "sensitive_features": [
+    "Geschlecht"
+  ],
+  "target_column": "ABGANG",
+  "check_type": "Demographic Parity"
+}

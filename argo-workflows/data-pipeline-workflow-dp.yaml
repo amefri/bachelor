@@ -9,7 +9,7 @@ spec:
       - name: input-bucket
         value: "raw-data"
       - name: input-key # Path to the raw data file in the input-bucket
-        value: "sample_data.csv" # Default value, can be overridden on submission
+        value: "ams-data.csv" # Default value, can be overridden on submission
       - name: processed-bucket
         value: "processed-data"
       - name: reports-bucket
@@ -27,9 +27,9 @@ spec:
       - name: val-key-suffix
         value: "-val.parquet"
       - name: sensitive-features # Comma-separated string
-        value: "sensitive_attr" # Example: Adjust to your data
+        value: "sensitive_attr" # Example: Adjust to data
       - name: target-column
-        value: "target" # Example: Adjust to your data
+        value: "target" # Example: Adjust to  data
 
   templates:
     # ----------------- VALIDATION STEP -----------------
@@ -41,7 +41,7 @@ spec:
       container:
         image: step-validation:latest # Use locally built image
         imagePullPolicy: Never # Important for local images in Minikube's daemon
-        command: [python, /app/validate-dummy.py]
+        command: [python, /app/validate.py]
         args: [
           "--bucket", "{{inputs.parameters.bucket}}",
           "--key", "{{inputs.parameters.key}}"
@@ -52,14 +52,14 @@ spec:
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
-                name: minio-secrets # The k8s secret created earlier
+                name: minio-secrets # The k8s secret 
                 key: rootUser
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END CORRECTED ENV BLOCK ---
+        # --- END ENV BLOCK ---
 
     # ----------------- PREPROCESSING STEP -----------------
     - name: preprocess-data
@@ -72,14 +72,14 @@ spec:
       container:
         image: step-preprocess:latest
         imagePullPolicy: Never
-        command: [python, /app/preprocess-dummy.py]
+        command: [python, /app/preprocess.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
           "--out_bucket", "{{inputs.parameters.out_bucket}}",
           "--out_key", "{{inputs.parameters.out_key}}"
         ]
-        env: # --- CORRECTED ENV BLOCK ---
+        env: # --- ENV BLOCK ---
           - name: S3_ENDPOINT_URL
             value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
@@ -92,7 +92,7 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END CORRECTED ENV BLOCK ---
+        # --- END ENV BLOCK ---
 
     # ----------------- BIAS CHECK STEP -----------------
     - name: check-bias
@@ -105,9 +105,9 @@ spec:
           - name: sensitive_features
           - name: target_col
       container:
-        image: step-bias-check:latest
+        image: step-check-bias:latest
         imagePullPolicy: Never
-        command: [python, /app/check_bias.py]
+        command: [python, /app/check-bias-eo.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
@@ -116,7 +116,7 @@ spec:
           "--sensitive_features", "{{inputs.parameters.sensitive_features}}",
           "--target_col", "{{inputs.parameters.target_col}}"
         ]
-        env: # --- CORRECTED ENV BLOCK ---
+        env: # ---  ENV BLOCK ---
           - name: S3_ENDPOINT_URL
             value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
@@ -129,7 +129,7 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END CORRECTED ENV BLOCK ---
+        # --- END ENV BLOCK ---
 
     # ----------------- DATA SPLITTING STEP -----------------
     - name: split-data
@@ -156,7 +156,7 @@ spec:
           "--target_col", "{{inputs.parameters.target_col}}"
           # Add --test_size, --val_size, --random_state if needed
         ]
-        env: # --- CORRECTED ENV BLOCK ---
+        env: # ---  ENV BLOCK ---
           - name: S3_ENDPOINT_URL
             value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
           - name: AWS_ACCESS_KEY_ID
@@ -169,7 +169,7 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END CORRECTED ENV BLOCK ---
+        # --- END  ENV BLOCK ---
 
     # ----------------- PIPELINE DAG DEFINITION -----------------
     - name: data-pipeline-dag

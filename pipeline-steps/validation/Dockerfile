@@ -5,6 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY validate-dummy.py .
 
-ENTRYPOINT ["python", "validate-dummy.py"]
+COPY validate.py .
+
+
+ENTRYPOINT ["python", "validate.py"]

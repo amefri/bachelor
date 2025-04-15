@@ -69,7 +69,7 @@ def split_data(in_bucket, in_key, out_bucket, train_key, test_key, val_key, targ
         else:
             print(f"Skipped saving empty split for s3://{out_bucket}/{key}")
 
-# ...(rest of the script remains the same)...
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
