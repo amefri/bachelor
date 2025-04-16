@@ -30,14 +30,14 @@ spec:
         value: "-test.parquet"
       - name: val-key-suffix
         value: "-val.parquet"
-    
+
       - name: target-column          # General target column, used by bias check and splitting
         value: "target"
-      - name: leitner-sensitive-col # Specific column
+      - name: sensitive-features # Specific column  <- THIS IS THE DEFINED PARAMETER NAME
         value: "sensitive_attr"     # MODIFY default if needed
-      - name: leitner-group-value   # Specific group value 
+      - name: group-value   # Specific group value
         value: "groupA"             # MODIFY default if needed
-      - name: leitner-positive-target-value # Value (as string) for positive outcom
+      - name: positive-target-value # Value (as string) for positive outcom
         value: "1"                  # MODIFY default if needed (e.g., "True", "Approved")
       - name: bias-threshold        # Threshold for Leitner divergence magnitude
         value: "0.1"                # MODIFY default if needed
@@ -50,7 +50,7 @@ spec:
           - name: bucket
           - name: key
       container:
-       
+
         image: step-validation:latest
         imagePullPolicy: Never
         command: [python, /app/validate-dummy.py]
@@ -114,26 +114,26 @@ spec:
           - name: p_in_key
           - name: p_out_bucket
           - name: p_report_key
-          - name: p_leitner_sensitive_col
-          - name: p_leitner_group_value
+          - name: p_sensitive_col
+          - name: p_group_value
           - name: p_target_col
-          - name: p_leitner_positive_target_value
+          - name: p_positive_target_value
           - name: p_bias_threshold
       container:
-        image: step-bias-check:latest # Image containing 
+        image: step-bias-check:latest # Image containing
         imagePullPolicy: Never
         # Ensure this is the correct script name from your Docker image
-        command: [python, /app/check_bias.py] 
+        command: [python, /app/check_bias.py]
         args: [ # Command-line flags passed to the Python script
           "--in_bucket={{inputs.parameters.p_in_bucket}}",
           "--in_key={{inputs.parameters.p_in_key}}",
           "--out_bucket={{inputs.parameters.p_out_bucket}}",
           "--report_key={{inputs.parameters.p_report_key}}",
-         
-          "--leitner_sensitive_col={{inputs.parameters.p_leitner_sensitive_col}}",
-          "--leitner_group_value={{inputs.parameters.p_leitner_group_value}}",
+
+          "--sensitive_features={{inputs.parameters.p_sensitive_col}}",
+          "--group_value={{inputs.parameters.p_group_value}}",
           "--target_col={{inputs.parameters.p_target_col}}",
-          "--leitner_positive_target_value={{inputs.parameters.p_leitner_positive_target_value}}",
+          "--positive_target_value={{inputs.parameters.p_positive_target_value}}",
           "--bias_threshold={{inputs.parameters.p_bias_threshold}}"
         ]
         env: # S3 Credentials via Env Vars
@@ -196,8 +196,8 @@ spec:
           - name: validate
             template: validate-data
             arguments:
-              parameters: 
-              - name: bucket 
+              parameters:
+              - name: bucket
                 value: "{{workflow.parameters.input-bucket}}"
               - name: key
                 value: "{{workflow.parameters.input-key}}"
@@ -220,7 +220,7 @@ spec:
             template: check-bias # Calls the check-bias template
             dependencies: [preprocess]
             arguments:
-              parameters: 
+              parameters:
               - name: p_in_bucket # Matches input param name in check-bias template
                 value: "{{workflow.parameters.processed-bucket}}"
               - name: p_in_key # Matches input param name
@@ -229,15 +229,17 @@ spec:
                 value: "{{workflow.parameters.reports-bucket}}"
               - name: p_report_key # Matches input param name
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
-             
-              - name: p_leitner_sensitive_col # Matches input param name
-                value: "{{workflow.parameters.leitner-sensitive-col}}" # Get value from global workflow param
-              - name: p_leitner_group_value # Matches input param name
-                value: "{{workflow.parameters.leitner-group-value}}" # Get value from global workflow param
+
+              # --- THIS LINE IS CORRECTED ---
+              - name: p_sensitive_col # Matches input param name in check-bias template
+                value: "{{workflow.parameters.sensitive-features}}" # Get value from global workflow param 'sensitive-features'
+
+              - name: p_group_value # Matches input param name
+                value: "{{workflow.parameters.group-value}}" # Get value from global workflow param
               - name: p_target_col # Matches input param name
                 value: "{{workflow.parameters.target-column}}" # Get value from global workflow param
-              - name: p_leitner_positive_target_value # Matches input param name
-                value: "{{workflow.parameters.leitner-positive-target-value}}" # Get value from global workflow param
+              - name: p_positive_target_value # Matches input param name
+                value: "{{workflow.parameters.positive-target-value}}" # Get value from global workflow param
               - name: p_bias_threshold # Matches input param name
                 value: "{{workflow.parameters.bias-threshold}}" # Get value from global workflow param
 

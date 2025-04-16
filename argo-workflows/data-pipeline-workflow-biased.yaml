@@ -1,0 +1,320 @@
+# to change .py script names, update the image build process accordingly
+# and ensure the correct script is referenced in the workflow.:
+
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: data-pipeline- # Argo will add a random suffix
+spec:
+  entrypoint: data-pipeline-dag
+  arguments:
+    parameters:
+      # --- Core Parameters ---
+      - name: input-bucket
+        value: "raw-data"
+      - name: input-key # Path to the raw data file in the input-bucket
+        value: "sample_data.csv" # Default value, OVERRIDE when submitting for your data
+      - name: processed-bucket
+        value: "processed-data"
+      - name: reports-bucket
+        value: "reports"
+      - name: feature-bucket
+        value: "feature-store"
+      - name: processed-key-suffix
+        value: "-processed.parquet"
+      - name: bias-report-key-suffix # Suffix for the initial report
+        value: "-bias-report.json"
+      - name: reduction-bias-report-key-suffix # Suffix for the report after mitigation
+        value: "-reduction-bias-report.json" # Corrected parameter name
+      - name: train-key-suffix
+        value: "-train.parquet"
+      - name: test-key-suffix
+        value: "-test.parquet"
+      - name: val-key-suffix
+        value: "-val.parquet"
+
+      # --- Bias/Splitting Parameters ---
+      - name: target-column
+        value: "target"
+      - name: sensitive-features
+        value: "sensitive_attr"
+      - name: group-value # Note: Simple oversampling script might not use this
+        value: "groupA"
+      - name: positive-target-value # Note: Simple oversampling script might not use this
+        value: "1"
+      - name: bias-threshold
+        value: "0.1"
+
+  templates:
+    # ----------------- VALIDATION STEP -----------------
+    - name: validate-data
+      inputs:
+        parameters:
+          - name: bucket
+          - name: key
+      container:
+        image: step-validation:latest
+        imagePullPolicy: Never
+        command: [python, /app/validate-dummy.py]
+        args: [ "--bucket", "{{inputs.parameters.bucket}}", "--key", "{{inputs.parameters.key}}" ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootUser } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
+
+    # ----------------- PREPROCESSING STEP -----------------
+    - name: preprocess-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key
+          - name: out_bucket
+          - name: out_key
+      container:
+        image: step-preprocess:latest
+        imagePullPolicy: Never
+        command: [python, /app/preprocess-dummy.py]
+        args:
+          [ "--in_bucket", "{{inputs.parameters.in_bucket}}",
+            "--in_key", "{{inputs.parameters.in_key}}",
+            "--out_bucket", "{{inputs.parameters.out_bucket}}",
+            "--out_key", "{{inputs.parameters.out_key}}" ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootUser } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
+
+    # ----------------- BIAS CHECK STEP (Modified for Output) -----------------
+    - name: check-bias # Template definition
+      inputs:
+        parameters:
+          - name: p_in_bucket
+          - name: p_in_key
+          - name: p_out_bucket          # Bucket for the JSON report
+          - name: p_report_key         # Key for the JSON report
+          - name: p_sensitive_col
+          - name: p_group_value
+          - name: p_target_col
+          - name: p_positive_target_value
+          - name: p_bias_threshold
+      outputs: # Define the output parameter
+        parameters:
+          - name: bias-status
+            valueFrom:
+              path: /tmp/bias_status.txt # Script MUST create this file
+      container:
+        image: step-bias-check:latest # Assumes this image contains check-bias-b.py
+        imagePullPolicy: Never
+        command: [python, /app/check-bias-b.py] # Corrected script name
+        args: [
+          "--in_bucket={{inputs.parameters.p_in_bucket}}",
+          "--in_key={{inputs.parameters.p_in_key}}",
+          "--out_bucket={{inputs.parameters.p_out_bucket}}",
+          "--report_key={{inputs.parameters.p_report_key}}",
+          "--sensitive_features={{inputs.parameters.p_sensitive_col}}",
+          "--group_value={{inputs.parameters.p_group_value}}",
+          "--target_col={{inputs.parameters.p_target_col}}",
+          "--positive_target_value={{inputs.parameters.p_positive_target_value}}",
+          "--bias_threshold={{inputs.parameters.p_bias_threshold}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootUser } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
+
+    # ----------------- BIAS MITIGATION STEP (OVERSAMPLING) -----------------
+    - name: reduction-bias # Template name
+      inputs:
+        parameters:
+          - name: p_in_bucket       # Bucket containing processed data
+          - name: p_in_key         # Key of processed data TO READ
+          - name: p_out_bucket      # Bucket to write mitigated data (same as input)
+          - name: p_out_key        # Key to write mitigated data (OVERWRITE input key)
+          - name: p_sensitive_col  # Sensitive column name
+          - name: p_target_col    # Target column name
+      container:
+        image: step-bias-reduction:latest # Correct image name
+        imagePullPolicy: Never
+        command: [python, /app/bias-reduction.py] # Correct script name
+        args: [
+          "--input-bucket", "{{inputs.parameters.p_in_bucket}}",
+          "--input-key", "{{inputs.parameters.p_in_key}}",
+          "--output-bucket", "{{inputs.parameters.p_out_bucket}}",
+          "--output-key", "{{inputs.parameters.p_out_key}}", # Overwrite destination
+          "--sensitive-col", "{{inputs.parameters.p_sensitive_col}}", # Script expects --sensitive-col ? check script argparse
+          "--target-col", "{{inputs.parameters.p_target_col}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootUser } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
+
+    # ----------------- PASS-THROUGH GATE STEP -----------------
+    - name: pass-through # Template definition for the gate
+      container:
+        image: alpine:latest # Small utility image
+        command: [echo, "Data preparation/mitigation path complete."]
+
+    # ----------------- DATA SPLITTING STEP -----------------
+    - name: split-data
+      inputs:
+        parameters:
+          - name: in_bucket
+          - name: in_key          # This key will point to the potentially overwritten data
+          - name: out_bucket # For splits
+          - name: train_key
+          - name: test_key
+          - name: val_key
+          - name: target_col # Accepts target column name
+      container:
+        image: step-split-data:latest
+        imagePullPolicy: Never
+        command: [python, /app/split_data.py]
+        args: [
+          "--in_bucket={{inputs.parameters.in_bucket}}",
+          "--in_key={{inputs.parameters.in_key}}",
+          "--out_bucket={{inputs.parameters.out_bucket}}",
+          "--train_key={{inputs.parameters.train_key}}",
+          "--test_key={{inputs.parameters.test_key}}",
+          "--val_key={{inputs.parameters.val_key}}",
+          "--target_col={{inputs.parameters.target_col}}"
+        ]
+        env:
+          - name: S3_ENDPOINT_URL
+            value: "http://minio-service.argo.svc.cluster.local:9000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootUser } }
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
+
+    # ================= PIPELINE DAG DEFINITION =================
+    - name: data-pipeline-dag
+      dag:
+        tasks:
+          - name: validate
+            template: validate-data
+            arguments:
+              parameters:
+                - name: bucket
+                  value: "{{workflow.parameters.input-bucket}}"
+                - name: key
+                  value: "{{workflow.parameters.input-key}}"
+
+          - name: preprocess
+            template: preprocess-data
+            dependencies: [validate]
+            arguments:
+              parameters:
+                - name: in_bucket
+                  value: "{{workflow.parameters.input-bucket}}"
+                - name: in_key
+                  value: "{{workflow.parameters.input-key}}"
+                - name: out_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: out_key # Argument passed TO preprocess template
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+
+          - name: initial-bias-check # Task invocation
+            template: check-bias # Calls the check-bias template
+            dependencies: [preprocess]
+            arguments:
+              parameters:
+                - name: p_in_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: p_in_key # Construct key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: p_out_bucket # Bucket for the initial report
+                  value: "{{workflow.parameters.reports-bucket}}"
+                - name: p_report_key # Key for the initial report
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
+                - name: p_sensitive_col
+                  value: "{{workflow.parameters.sensitive-features}}"
+                - name: p_group_value
+                  value: "{{workflow.parameters.group-value}}"
+                - name: p_target_col
+                  value: "{{workflow.parameters.target-column}}"
+                - name: p_positive_target_value
+                  value: "{{workflow.parameters.positive-target-value}}"
+                - name: p_bias_threshold
+                  value: "{{workflow.parameters.bias-threshold}}"
+
+          # --- Mitigation Path (Conditional) ---
+          - name: reduction # Task name
+            template: reduction-bias # Template name for mitigation
+            dependencies: [initial-bias-check]
+            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'" # Corrected quoting
+            arguments:
+              parameters:
+                - name: p_in_bucket # Read from processed bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: p_in_key # Read the key constructed previously
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: p_out_bucket # Write back to processed bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: p_out_key # OVERWRITE the same key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: p_sensitive_col
+                  value: "{{workflow.parameters.sensitive-features}}"
+                - name: p_target_col
+                  value: "{{workflow.parameters.target-column}}"
+
+         
+
+          # --- Final Bias Check (Conditional) ---
+          - name: final-bias-check # Runs only if mitigation happened
+            template: check-bias # Use the same check-bias template
+            dependencies: [reduction] # Run after the gate
+            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'" # Corrected quoting
+            arguments:
+              parameters:
+                - name: p_in_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: p_in_key # Reads the potentially overwritten processed key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: p_out_bucket # Bucket for the final report
+                  value: "{{workflow.parameters.reports-bucket}}"
+                - name: p_report_key # Use the specific suffix for reduction report
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.reduction-bias-report-key-suffix}}" # Corrected suffix
+                - name: p_sensitive_col
+                  value: "{{workflow.parameters.sensitive-features}}"
+                - name: p_group_value
+                  value: "{{workflow.parameters.group-value}}"
+                - name: p_target_col
+                  value: "{{workflow.parameters.target-column}}"
+                - name: p_positive_target_value
+                  value: "{{workflow.parameters.positive-target-value}}"
+                - name: p_bias_threshold
+                  value: "{{workflow.parameters.bias-threshold}}"
+
+          # --- Split Data ---
+          - name: split # Task name for splitting
+            template: split-data
+            dependencies: [final-bias-check] # Depend on the gate
+            arguments:
+              parameters:
+                - name: in_bucket
+                  value: "{{workflow.parameters.processed-bucket}}"
+                - name: in_key # Read the potentially overwritten processed key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
+                - name: out_bucket # Feature store bucket
+                  value: "{{workflow.parameters.feature-bucket}}"
+                - name: train_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"
+                - name: test_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.test-key-suffix}}"
+                - name: val_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.val-key-suffix}}"
+                - name: target_col
+                  value: "{{workflow.parameters.target-column}}"
