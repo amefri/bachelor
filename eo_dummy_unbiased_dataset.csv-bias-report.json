@@ -1,0 +1,40 @@
+{
+  "check_type": "Classification Bias Check (Equalized Odds)",
+  "input_data": "s3://processed-data/dummy_unbiased_dataset.csv-processed.parquet",
+  "sensitive_features_used": [
+    "sensitive_attr"
+  ],
+  "target_column": "target",
+  "prediction_column": "pred_col",
+  "metrics_by_group": [
+    {
+      "count": 82.0,
+      "selection_rate": 0.6097560975609756,
+      "true_positive_rate": 0.5714285714285714,
+      "false_positive_rate": 0.65
+    },
+    {
+      "count": 68.0,
+      "selection_rate": 0.5147058823529411,
+      "true_positive_rate": 0.5483870967741935,
+      "false_positive_rate": 0.4864864864864865
+    }
+  ],
+  "disparity_metrics": {
+    "difference": {
+      "count": 14.0,
+      "selection_rate": 0.09505021520803447,
+      "true_positive_rate": 0.02304147465437789,
+      "false_positive_rate": 0.1635135135135135
+    }
+  },
+  "bias_check_status": "Warning: Equalized Odds Difference (0.1635) > threshold (0.05)",
+  "error_message": null,
+  "overall_metrics": {
+    "count": 150,
+    "selection_rate": 0.5666666666666667,
+    "true_positive_rate": 0.5616438356164384,
+    "false_positive_rate": 0.5714285714285714,
+    "equalized_odds_difference": 0.1635135135135135
+  }
+}

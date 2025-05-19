@@ -1,4 +1,4 @@
-# bias_check_demographic_parity.py
+# demographic parity check
 
 from fairlearn.metrics import selection_rate, demographic_parity_difference, MetricFrame
 import argparse
@@ -9,12 +9,14 @@ from io import BytesIO
 import json
 import sys # Import sys for error handling
 
+
+BIAS_THRESHOLD_DP = 0.1 
+
 def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
-                                  sensitive_features_str, target_col, bias_threshold, # Added bias_threshold
-                                  # Optional: Add group_value, positive_target_value if needed later
+                                  sensitive_features_str, target_col, BIAS_THRESHOLD_DP, 
                                   endpoint_url, access_key, secret_key):
     print("Checking demographic parity...")
-    print(f"Using bias threshold: {bias_threshold}") # Log the threshold being used
+    print(f"Using bias threshold: {BIAS_THRESHOLD_DP}") # Log the threshold being used
 
     s3 = boto3.client("s3", endpoint_url=endpoint_url,
                       aws_access_key_id=access_key, aws_secret_access_key=secret_key)
@@ -57,8 +59,7 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
     # --- Check if y_true has variance ---
     if y_true.nunique() <= 1:
        print(f"Warning: Target column '{target_col}' has only one unique value ({y_true.unique()}). Bias metrics may not be meaningful.")
-       # Decide how to handle this: exit, or report default values?
-       # For now, let's report default/zero bias but flag it.
+       
        dp_diff = 0.0
        mf_by_group = {}
        mf_overall = y_true.mean() if not y_true.empty else 0.0 # Handle empty case
@@ -78,9 +79,9 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
             dp_diff = demographic_parity_difference(y_true, y_true, sensitive_features=sensitive_features)
 
             # Use the bias_threshold passed from the workflow
-            bias_status = "Warning: Potential Bias Detected" if abs(dp_diff) > bias_threshold else "Passed"
+            bias_status = "Warning: Potential Bias Detected" if abs(dp_diff) > BIAS_THRESHOLD_DP else "Passed"
             print(f"Demographic Parity Difference: {dp_diff:.4f}")
-            print(f"Bias Check Status (Threshold: {bias_threshold}): {bias_status}")
+            print(f"Bias Check Status (Threshold: {BIAS_THRESHOLD_DP}): {bias_status}")
 
         except Exception as e:
             print(f"Error calculating Fairlearn metrics: {e}")
@@ -95,8 +96,8 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
         "selection_rate_by_group": mf_by_group,
         "overall_selection_rate": mf_overall,
         "demographic_parity_difference": dp_diff,
-        "bias_threshold_used": bias_threshold, # Include threshold in report
-        "bias_check_status": "Warning" if abs(dp_diff) > bias_threshold else "Passed",
+        "bias_threshold_used": BIAS_THRESHOLD_DP, # Include threshold in report
+        "bias_check_status": "Warning" if abs(dp_diff) > BIAS_THRESHOLD_DP else "Passed",
         "sensitive_features": sensitive_features_list,
         "target_column": target_col,
         "check_type": "Demographic Parity"
@@ -119,19 +120,16 @@ if __name__ == "__main__":
     parser.add_argument('--report_key', required=True, help="Output S3 key for bias report (JSON format)")
     parser.add_argument('--sensitive_features', required=True, help="Comma-separated list of sensitive feature column names")
     parser.add_argument('--target_col', required=True, help="Name of the target column")
-
-    # --- ADDED ARGUMENTS ---
     parser.add_argument('--group_value', required=False, help="Specific group value (currently not used by demographic parity check, but accepted)") # Added required=False for now
     parser.add_argument('--positive_target_value', required=False, help="Value representing positive outcome (currently not used by demographic parity check, but accepted)") # Added required=False for now
-    parser.add_argument('--bias_threshold', type=float, required=True, help="Threshold for absolute demographic parity difference") # Added type=float
-
+    
     args = parser.parse_args()
 
-    # --- PASS bias_threshold TO FUNCTION ---
+
     run_demographic_parity_check(
         args.in_bucket, args.in_key, args.out_bucket, args.report_key,
-        args.sensitive_features, args.target_col, args.bias_threshold, # Pass the threshold
-        # Optional: Pass args.group_value, args.positive_target_value if the function is updated to use them
+        args.sensitive_features, args.target_col, BIAS_THRESHOLD_DP, 
+        
         os.environ.get("S3_ENDPOINT_URL"),
         os.environ.get("AWS_ACCESS_KEY_ID"),
         os.environ.get("AWS_SECRET_ACCESS_KEY")

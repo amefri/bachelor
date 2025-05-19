@@ -30,7 +30,7 @@ spec:
         value: "sensitive_attr"
       - name: target-column
         value: "target"
-      - name: prediction-column  # Hier definierst du den Prediction Column
+      - name: prediction-column # This is the name of the column that will hold the predictions
         value: "pred_col" 
 
   templates:
@@ -43,7 +43,7 @@ spec:
       container:
         image: step-validation:latest
         imagePullPolicy: Never
-        command: [python, /app/validate-eu.py]
+        command: [python, /app/validate-dummy.py]
         args: [
           "--bucket", "{{inputs.parameters.bucket}}",
           "--key", "{{inputs.parameters.key}}"
@@ -73,7 +73,7 @@ spec:
       container:
         image: step-preprocess:latest
         imagePullPolicy: Never
-        command: [python, /app/preprocess-eu.py]
+        command: [python, /app/preprocess-dummy.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
@@ -143,12 +143,12 @@ spec:
           - name: pred_bucket  # Bucket to save test data + predictions
           - name: pred_key     # Key for the output file with predictions
           - name: target_col
-          - name: pred_col_name # <<< ADDED: Parameter for the desired prediction column name
+          - name: pred_col_name 
       container:
         image: step-ml:latest
         imagePullPolicy: Never
-        # Assuming /app/modell.py is the train_predict.py script shown earlier
-        command: [python, /app/modell.py] # Or /app/train_predict.py if that's the actual name
+        
+        command: [python, /app/modell.py] 
         args: [
           "--train_bucket", "{{inputs.parameters.train_bucket}}",
           "--train_key", "{{inputs.parameters.train_key}}",
@@ -178,8 +178,7 @@ spec:
           limits:
             memory: "6Gi"
 
-    # ----------------- CHECK BIAS -----------------
-    # (check-bias template is likely correct as it already receives pred_col parameter)
+    
     - name: check-bias
       inputs:
         parameters:

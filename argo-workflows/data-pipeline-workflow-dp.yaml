@@ -1,37 +1,38 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: data-pipeline- # Argo will add a random suffix
+  generateName: data-pipeline- # Argo will append a random suffix to the workflow name
 spec:
-  entrypoint: data-pipeline-dag
+  entrypoint: data-pipeline-dag # The entry template for this workflow
   arguments:
     parameters:
       - name: input-bucket
-        value: "raw-data"
-      - name: input-key # Path to the raw data file in the input-bucket
-        value: "ams-data.csv" # Default value, can be overridden on submission
+        value: "raw-data" # Source bucket containing raw input files
+      - name: input-key
+        value: "ams-data.csv" # Default key (filename) for input; can be overridden at runtime
       - name: processed-bucket
-        value: "processed-data"
+        value: "processed-data" # Bucket to store cleaned/transformed data
       - name: reports-bucket
-        value: "reports"
+        value: "reports" # Bucket to store bias reports
       - name: feature-bucket
-        value: "feature-store"
+        value: "feature-store" # Bucket to store split data for model training
       - name: processed-key-suffix
-        value: "-processed.parquet"
+        value: "-processed.parquet" # Suffix to add to the processed data file
       - name: bias-report-key-suffix
-        value: "-bias-report.json"
+        value: "-bias-report.json" # Suffix for the bias report output
       - name: train-key-suffix
-        value: "-train.parquet"
+        value: "-train.parquet" # Suffix for the training data split
       - name: test-key-suffix
-        value: "-test.parquet"
+        value: "-test.parquet" # Suffix for the test data split
       - name: val-key-suffix
-        value: "-val.parquet"
-      - name: sensitive-features # Comma-separated string
-        value: "sensitive_attr" # Example: Adjust to data
+        value: "-val.parquet" # Suffix for the validation data split
+      - name: sensitive-features
+        value: "sensitive_attr" # Comma-separated sensitive columns for bias checking
       - name: target-column
-        value: "target" # Example: Adjust to  data
+        value: "target" # The target column name in the dataset
 
   templates:
+
     # ----------------- VALIDATION STEP -----------------
     - name: validate-data
       inputs:
@@ -39,27 +40,26 @@ spec:
           - name: bucket
           - name: key
       container:
-        image: step-validation:latest # Use locally built image
-        imagePullPolicy: Never # Important for local images in Minikube's daemon
-        command: [python, /app/validate.py]
+        image: step-validation:latest # Docker image for validation logic
+        imagePullPolicy: Never # Ensures local image is used (important for Minikube/local testing)
+        command: [python, /app/validate-dummy.py] # Python script to execute
         args: [
           "--bucket", "{{inputs.parameters.bucket}}",
           "--key", "{{inputs.parameters.key}}"
         ]
-        env: # --- CORRECTED ENV BLOCK ---
+        env:
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000" # S3-compatible MinIO endpoint
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
-                name: minio-secrets # The k8s secret 
-                key: rootUser
+                name: minio-secrets # Kubernetes secret name
+                key: rootUser # Access key ID from secret
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom:
               secretKeyRef:
                 name: minio-secrets
-                key: rootPassword
-        # --- END ENV BLOCK ---
+                key: rootPassword # Secret access key from secret
 
     # ----------------- PREPROCESSING STEP -----------------
     - name: preprocess-data
@@ -70,18 +70,18 @@ spec:
           - name: out_bucket
           - name: out_key
       container:
-        image: step-preprocess:latest
+        image: step-preprocess:latest # Image for preprocessing logic
         imagePullPolicy: Never
-        command: [python, /app/preprocess.py]
+        command: [python, /app/preprocess-dummy.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
           "--out_bucket", "{{inputs.parameters.out_bucket}}",
           "--out_key", "{{inputs.parameters.out_key}}"
         ]
-        env: # --- ENV BLOCK ---
+        env:
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000"
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -92,7 +92,6 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END ENV BLOCK ---
 
     # ----------------- BIAS CHECK STEP -----------------
     - name: check-bias
@@ -100,14 +99,14 @@ spec:
         parameters:
           - name: in_bucket
           - name: in_key
-          - name: out_bucket # For report
+          - name: out_bucket
           - name: report_key
           - name: sensitive_features
           - name: target_col
       container:
-        image: step-check-bias:latest
+        image: step-check-bias:latest # Image containing bias check logic
         imagePullPolicy: Never
-        command: [python, /app/check-bias-eo.py]
+        command: [python, /app/check_bias.py]
         args: [
           "--in_bucket", "{{inputs.parameters.in_bucket}}",
           "--in_key", "{{inputs.parameters.in_key}}",
@@ -116,9 +115,9 @@ spec:
           "--sensitive_features", "{{inputs.parameters.sensitive_features}}",
           "--target_col", "{{inputs.parameters.target_col}}"
         ]
-        env: # ---  ENV BLOCK ---
+        env:
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000"
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -129,7 +128,6 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END ENV BLOCK ---
 
     # ----------------- DATA SPLITTING STEP -----------------
     - name: split-data
@@ -137,13 +135,13 @@ spec:
         parameters:
           - name: in_bucket
           - name: in_key
-          - name: out_bucket # For splits
+          - name: out_bucket
           - name: train_key
           - name: test_key
           - name: val_key
           - name: target_col
       container:
-        image: step-split-data:latest
+        image: step-split-data:latest # Container image for splitting data into train/test/val
         imagePullPolicy: Never
         command: [python, /app/split_data.py]
         args: [
@@ -154,11 +152,11 @@ spec:
           "--test_key", "{{inputs.parameters.test_key}}",
           "--val_key", "{{inputs.parameters.val_key}}",
           "--target_col", "{{inputs.parameters.target_col}}"
-          # Add --test_size, --val_size, --random_state if needed
+          # You can add --test_size, --val_size, --random_state if needed
         ]
-        env: # ---  ENV BLOCK ---
+        env:
           - name: S3_ENDPOINT_URL
-            value: "http://minio-service.argo.svc.cluster.local:9000" # Adjust namespace if needed
+            value: "http://minio-service.argo.svc.cluster.local:9000"
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
@@ -169,7 +167,6 @@ spec:
               secretKeyRef:
                 name: minio-secrets
                 key: rootPassword
-        # --- END  ENV BLOCK ---
 
     # ----------------- PIPELINE DAG DEFINITION -----------------
     - name: data-pipeline-dag
@@ -186,28 +183,28 @@ spec:
 
           - name: preprocess
             template: preprocess-data
-            dependencies: [validate] # Runs after validation completes
+            dependencies: [validate] # Only runs after 'validate' completes successfully
             arguments:
               parameters:
               - name: in_bucket
                 value: "{{workflow.parameters.input-bucket}}"
-              - name: in_key # Use the original input key for preprocessing
+              - name: in_key
                 value: "{{workflow.parameters.input-key}}"
               - name: out_bucket
                 value: "{{workflow.parameters.processed-bucket}}"
-              - name: out_key # Construct the output key dynamically
+              - name: out_key
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
 
           - name: bias-check
             template: check-bias
-            dependencies: [preprocess] # Runs after preprocessing completes
+            dependencies: [preprocess] # Runs after preprocessing is done
             arguments:
               parameters:
-              - name: in_bucket # Input is the processed data
+              - name: in_bucket
                 value: "{{workflow.parameters.processed-bucket}}"
               - name: in_key
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-              - name: out_bucket # Output is the report bucket
+              - name: out_bucket
                 value: "{{workflow.parameters.reports-bucket}}"
               - name: report_key
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
@@ -218,14 +215,14 @@ spec:
 
           - name: split
             template: split-data
-            dependencies: [bias-check] # Runs after bias check completes
+            dependencies: [bias-check] # Runs after bias analysis completes
             arguments:
               parameters:
-              - name: in_bucket # Input is the processed data
+              - name: in_bucket
                 value: "{{workflow.parameters.processed-bucket}}"
               - name: in_key
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-              - name: out_bucket # Output is the feature store bucket
+              - name: out_bucket
                 value: "{{workflow.parameters.feature-bucket}}"
               - name: train_key
                 value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"

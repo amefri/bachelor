@@ -1,0 +1,15 @@
+{
+  "selection_rate_by_group": {
+    "groupA": 0.521484375,
+    "groupB": 0.48360655737704916
+  },
+  "overall_selection_rate": 0.503,
+  "demographic_parity_difference": 0.03787781762295084,
+  "bias_threshold_used": 0.1,
+  "bias_check_status": "Passed",
+  "sensitive_features": [
+    "sensitive_attr"
+  ],
+  "target_column": "target",
+  "check_type": "Demographic Parity"
+}

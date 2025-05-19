@@ -6,7 +6,7 @@ from io import BytesIO
 import json
 import numpy as np 
 
-# Helper function remains the same
+
 def calculate_group_positive_rates(df, group_cols, target_col):
     """Calculates positive rate (mean of target) and counts per group."""
     try:
@@ -37,13 +37,9 @@ def calculate_group_positive_rates(df, group_cols, target_col):
         print(f"ERROR: Unexpected error during group rate calculation: {type(e).__name__} - {e}")
         raise
 
-# Main function modified for Disparate Impact (Min/Max Ratio)
+
 def check_disparate_impact_data_distribution(in_bucket, in_key, out_bucket, report_key, sensitive_features_str, target_col, endpoint_url, access_key, secret_key):
-    """
-    Checks data distribution based on the Disparate Impact concept.
-    Calculates the ratio of minimum positive rate to maximum positive rate
-    across sensitive groups based on the actual target variable in the data.
-    """
+   
     print(f"--- Starting Data Bias Check (Focus: Disparate Impact Min/Max Ratio on Data) ---")
     print(f"Input: s3://{in_bucket}/{in_key}")
     print(f"Sensitive features: {sensitive_features_str}")
@@ -92,7 +88,7 @@ def check_disparate_impact_data_distribution(in_bucket, in_key, out_bucket, repo
         # --- Calculate Disparate Impact (Min/Max Ratio) ---
         di_ratio = None
         status = "Skipped"
-        bias_threshold = 0.8 # Common threshold for DI (80% rule)
+        bias_threshold = 0.8 # Common threshold for DI 
 
         # Only calculate if we have rates for at least two groups and no NaNs
         valid_rates = group_stats['positive_rate'].dropna()
@@ -178,7 +174,7 @@ if __name__ == "__main__":
     if not all([s3_endpoint, s3_access_key, s3_secret_key]):
         raise ValueError("S3 credentials or endpoint not found.")
 
-    # Changed function name
+  
     check_disparate_impact_data_distribution(args.in_bucket, args.in_key, args.out_bucket, args.report_key,
                                               args.sensitive_features, args.target_col,
                                               s3_endpoint, s3_access_key, s3_secret_key)

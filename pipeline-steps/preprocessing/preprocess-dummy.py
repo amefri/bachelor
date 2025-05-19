@@ -1,7 +1,7 @@
 import argparse
 import os
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, OneHotEncoder # Keep StandardScaler if you might add it
+from sklearn.preprocessing import StandardScaler, OneHotEncoder 
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 import boto3
@@ -20,94 +20,69 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
         print("Input data loaded.")
     except Exception as e:
         print(f"Error loading data from S3: {e}")
-        raise # Re-raise the exception to fail the step
+        raise
 
-    # --- Preprocessing Logic ---
-    target_col = 'target' # Define target column name
-    sensitive_col = 'sensitive_attr' # Define sensitive column name
+    target_col = 'target'
+    sensitive_col = 'sensitive_attr'
 
-    # Check if essential columns exist *before* processing
     if target_col not in df.columns:
         raise ValueError(f"Target column '{target_col}' not found in input data. Columns: {df.columns.tolist()}")
     if sensitive_col not in df.columns:
         raise ValueError(f"Sensitive column '{sensitive_col}' not found in input data. Columns: {df.columns.tolist()}")
 
-    # Separate target and sensitive columns FIRST
     y = df[target_col]
-    sensitive_data = df[[sensitive_col]] # Keep sensitive column separate (as a DataFrame)
-
-    # X contains only the features to be potentially transformed
+    sensitive_data = df[[sensitive_col]]
     X = df.drop([target_col, sensitive_col], axis=1)
 
-    # Identify column types *within X*
     numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
-    # EXCLUDE sensitive column - it's already removed from X
     categorical_cols = X.select_dtypes(include=['object', 'category']).columns
 
     print(f"Numerical columns to process in X: {numerical_cols.tolist()}")
     print(f"Categorical columns to process in X: {categorical_cols.tolist()}")
 
-  
-    numerical_transformer = SimpleImputer(strategy='median') # Simpler if just imputing
+    numerical_transformer = SimpleImputer(strategy='median')
+    categorical_transformer = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
 
-    categorical_transformer = OneHotEncoder(handle_unknown='ignore', sparse_output=False) # sparse_output=False often easier
-
-    # Create a column transformer *only for features in X*
-    # Use remainder='passthrough' to keep any columns in X not explicitly handled
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', numerical_transformer, numerical_cols),
             ('cat', categorical_transformer, categorical_cols)
         ],
-        remainder='passthrough', # Keeps columns in X that are neither num nor cat
-        verbose_feature_names_out=False # Often gives cleaner column names
+        remainder='passthrough',
+        verbose_feature_names_out=False
     )
-    # Use set_output(transform="pandas") if scikit-learn >= 1.2 for direct DataFrame output
     try:
         preprocessor.set_output(transform="pandas")
     except AttributeError:
         print("Warning: set_output not available. Will construct DataFrame manually.")
-        pass # Continue without direct pandas output
-
+        pass
 
     print("Fitting and transforming feature set X...")
-    # Apply transformations *only to X*
     try:
         X_processed_intermediate = preprocessor.fit_transform(X)
-
-        # Check if output is already a DataFrame (due to set_output)
         if isinstance(X_processed_intermediate, pd.DataFrame):
             X_processed_df = X_processed_intermediate
         else:
-            # Construct DataFrame manually if set_output wasn't used/available
             print("Constructing DataFrame manually from transformer output.")
             feature_names = preprocessor.get_feature_names_out()
-            X_processed_df = pd.DataFrame(X_processed_intermediate, columns=feature_names, index=X.index) # Ensure index is preserved
-
+            X_processed_df = pd.DataFrame(X_processed_intermediate, columns=feature_names, index=X.index)
         print("Transformation successful.")
         print(f"Columns after transformation of X: {X_processed_df.columns.tolist()}")
-
     except Exception as e:
         print(f"Error during preprocessing transformation: {e}")
-        # Print shapes for debugging
         print(f"Shape of X: {X.shape}")
         if 'X_processed_intermediate' in locals():
-             print(f"Output shape of transformer: {X_processed_intermediate.shape}")
+            print(f"Output shape of transformer: {X_processed_intermediate.shape}")
         raise
 
-    # --- Combine processed features, original sensitive attr, and target ---
-    # Use original index to ensure alignment.
     print("Combining processed features, sensitive attribute, and target...")
     try:
-        # Ensure indices match before concatenating, reindex if needed (should match if preserved above)
         processed_df = pd.concat([X_processed_df, sensitive_data.reindex(X_processed_df.index), y.reindex(X_processed_df.index)], axis=1)
     except Exception as e:
         print(f"Error concatenating final DataFrame: {e}")
-        # Print shapes for debugging
         print(f"Shape of X_processed_df: {X_processed_df.shape}")
         print(f"Shape of sensitive_data: {sensitive_data.shape}")
         print(f"Shape of y: {y.shape}")
-        # Check indices if error occurs
         print(f"Index of X_processed_df (first 5): {X_processed_df.index[:5]}")
         print(f"Index of sensitive_data (first 5): {sensitive_data.index[:5]}")
         print(f"Index of y (first 5): {y.index[:5]}")
@@ -115,9 +90,8 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
 
     print("Preprocessing complete.")
     print(f"Final processed data shape: {processed_df.shape}")
-    print(f"Final processed columns: {processed_df.columns.tolist()}") # Verify sensitive_attr is present
+    print(f"Final processed columns: {processed_df.columns.tolist()}")
 
-    # Save processed data to MinIO (using Parquet for efficiency)
     print(f"Saving processed data to s3://{out_bucket}/{out_key}...")
     try:
         out_buffer = BytesIO()
@@ -128,8 +102,6 @@ def preprocess_data(in_bucket, in_key, out_bucket, out_key, endpoint_url, access
     except Exception as e:
         print(f"Error saving processed data to S3: {e}")
         raise
-
-# --- End of preprocess_data function ---
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -146,6 +118,5 @@ if __name__ == "__main__":
     if not all([s3_endpoint, s3_access_key, s3_secret_key]):
         raise ValueError("S3 credentials or endpoint not found in environment variables.")
 
-    # Call the preprocessing function
     preprocess_data(args.in_bucket, args.in_key, args.out_bucket, args.out_key,
                     s3_endpoint, s3_access_key, s3_secret_key)

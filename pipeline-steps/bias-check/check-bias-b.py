@@ -1,4 +1,4 @@
-# check-bias-b.py (or bias_check_demographic_parity.py)
+
 
 from fairlearn.metrics import selection_rate, demographic_parity_difference, MetricFrame
 import argparse
@@ -77,7 +77,7 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
        dp_diff = 0.0
        mf_by_group = {}
        mf_overall = y_true.mean() if not y_true.empty else 0.0
-       # --- Simplified Status ---
+       
        bias_status = "Passed" # Treat as Passed since no disparity exists
     else:
         try:
@@ -93,18 +93,18 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
 
             if pd.isna(dp_diff):
                 print("Warning: Demographic parity difference is NaN. Likely only one group present.")
-                # --- Simplified Status ---
+                
                 bias_status = "Passed" # Treat as Passed since no disparity measurable
                 dp_diff = 0.0
             else:
-                # --- Simplified Status ---
+                
                 if abs(dp_diff) > bias_threshold:
-                    bias_status = "Warning" # Simple word
+                    bias_status = "Warning" 
                 else:
                     bias_status = "Passed"
 
             print(f"Demographic Parity Difference: {dp_diff:.4f}")
-            # Print the descriptive status for logs, but use simple status for Argo file
+            
             print(f"Bias Check Status (Threshold: {bias_threshold}): {'Warning: Potential Bias Detected' if bias_status == 'Warning' else bias_status}")
 
 
@@ -113,7 +113,7 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
             dp_diff = "Error"
             mf_by_group = {"Error": str(e)}
             mf_overall = "Error"
-            # --- Simplified Status ---
+            
             bias_status = "Error"
 
 
@@ -122,7 +122,6 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
         "overall_selection_rate": mf_overall,
         "demographic_parity_difference": dp_diff,
         "bias_threshold_used": bias_threshold,
-        # Store the simple status in the report as well
         "bias_check_status": bias_status,
         "sensitive_features": sensitive_features_list,
         "target_column": target_col,
@@ -139,15 +138,15 @@ def run_demographic_parity_check(in_bucket, in_key, out_bucket, report_key,
         s3.put_object(Bucket=out_bucket, Key=report_key, Body=report_buffer)
         print(f"Demographic parity report saved successfully to {out_bucket}/{report_key}.")
     except TypeError as te:
-         print(f"Error serializing result to JSON: {te}")
+         print(f"Error serializing result #to JSON: {te}")
          print(f"Result dictionary causing issue: {result}")
          bias_status = "Error" # Update status if report saving fails
     except Exception as e:
         print(f"Error saving report to {out_bucket}/{report_key}: {e}")
         bias_status = "Error" # Update status if report saving fails
 
-    # --- Write final *simple* status file for Argo ---
-    final_status_to_write = bias_status # Use the simple status determined above
+   
+    final_status_to_write = bias_status 
     try:
         with open("/tmp/bias_status.txt", "w") as f:
             f.write(final_status_to_write)

@@ -1,19 +1,16 @@
-# to change .py script names, update the image build process accordingly
-# and ensure the correct script is referenced in the workflow.:
-
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: data-pipeline- # Argo will add a random suffix
+  generateName: data-pipeline-  # Argo will append a random suffix to the workflow name
 spec:
   entrypoint: data-pipeline-dag
   arguments:
     parameters:
-      # --- Core Parameters ---
+      # Input/output buckets and file naming conventions
       - name: input-bucket
         value: "raw-data"
-      - name: input-key # Path to the raw data file in the input-bucket
-        value: "sample_data.csv" # Default value, OVERRIDE when submitting for your data
+      - name: input-key
+        value: "sample_data.csv"
       - name: processed-bucket
         value: "processed-data"
       - name: reports-bucket
@@ -22,10 +19,10 @@ spec:
         value: "feature-store"
       - name: processed-key-suffix
         value: "-processed.parquet"
-      - name: bias-report-key-suffix # Suffix for the initial report
+      - name: bias-report-key-suffix
         value: "-bias-report.json"
-      - name: reduction-bias-report-key-suffix # Suffix for the report after mitigation
-        value: "-reduction-bias-report.json" # Corrected parameter name
+      - name: reduction-bias-report-key-suffix
+        value: "-reduction-bias-report.json"
       - name: train-key-suffix
         value: "-train.parquet"
       - name: test-key-suffix
@@ -33,20 +30,21 @@ spec:
       - name: val-key-suffix
         value: "-val.parquet"
 
-      # --- Bias/Splitting Parameters ---
+      # Parameters used for bias detection and data splitting
       - name: target-column
         value: "target"
       - name: sensitive-features
         value: "sensitive_attr"
-      - name: group-value # Note: Simple oversampling script might not use this
+      - name: group-value
         value: "groupA"
-      - name: positive-target-value # Note: Simple oversampling script might not use this
+      - name: positive-target-value
         value: "1"
       - name: bias-threshold
         value: "0.1"
 
   templates:
-    # ----------------- VALIDATION STEP -----------------
+
+    # Step 1: Validate input data
     - name: validate-data
       inputs:
         parameters:
@@ -65,7 +63,7 @@ spec:
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
 
-    # ----------------- PREPROCESSING STEP -----------------
+    # Step 2: Preprocess raw input data and save it in a structured format
     - name: preprocess-data
       inputs:
         parameters:
@@ -90,28 +88,28 @@ spec:
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
 
-    # ----------------- BIAS CHECK STEP (Modified for Output) -----------------
-    - name: check-bias # Template definition
+    # Step 3: Analyze dataset for bias and generate a report
+    - name: check-bias 
       inputs:
         parameters:
           - name: p_in_bucket
           - name: p_in_key
-          - name: p_out_bucket          # Bucket for the JSON report
-          - name: p_report_key         # Key for the JSON report
+          - name: p_out_bucket         
+          - name: p_report_key         
           - name: p_sensitive_col
           - name: p_group_value
           - name: p_target_col
           - name: p_positive_target_value
           - name: p_bias_threshold
-      outputs: # Define the output parameter
+      outputs:
         parameters:
           - name: bias-status
             valueFrom:
-              path: /tmp/bias_status.txt # Script MUST create this file
+              path: /tmp/bias_status.txt
       container:
-        image: step-bias-check:latest # Assumes this image contains check-bias-b.py
+        image: step-bias-check:latest
         imagePullPolicy: Never
-        command: [python, /app/check-bias-b.py] # Corrected script name
+        command: [python, /app/check-bias-b.py]
         args: [
           "--in_bucket={{inputs.parameters.p_in_bucket}}",
           "--in_key={{inputs.parameters.p_in_key}}",
@@ -131,26 +129,26 @@ spec:
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
 
-    # ----------------- BIAS MITIGATION STEP (OVERSAMPLING) -----------------
-    - name: reduction-bias # Template name
+    # Step 4: Apply bias mitigation via oversampling (if needed)
+    - name: reduction-bias
       inputs:
         parameters:
-          - name: p_in_bucket       # Bucket containing processed data
-          - name: p_in_key         # Key of processed data TO READ
-          - name: p_out_bucket      # Bucket to write mitigated data (same as input)
-          - name: p_out_key        # Key to write mitigated data (OVERWRITE input key)
-          - name: p_sensitive_col  # Sensitive column name
-          - name: p_target_col    # Target column name
+          - name: p_in_bucket
+          - name: p_in_key
+          - name: p_out_bucket
+          - name: p_out_key
+          - name: p_sensitive_col
+          - name: p_target_col
       container:
-        image: step-bias-reduction:latest # Correct image name
+        image: step-bias-reduction:latest
         imagePullPolicy: Never
-        command: [python, /app/bias-reduction.py] # Correct script name
+        command: [python, /app/bias-reduction.py]
         args: [
           "--input-bucket", "{{inputs.parameters.p_in_bucket}}",
           "--input-key", "{{inputs.parameters.p_in_key}}",
           "--output-bucket", "{{inputs.parameters.p_out_bucket}}",
-          "--output-key", "{{inputs.parameters.p_out_key}}", # Overwrite destination
-          "--sensitive-col", "{{inputs.parameters.p_sensitive_col}}", # Script expects --sensitive-col ? check script argparse
+          "--output-key", "{{inputs.parameters.p_out_key}}",
+          "--sensitive-col", "{{inputs.parameters.p_sensitive_col}}",
           "--target-col", "{{inputs.parameters.p_target_col}}"
         ]
         env:
@@ -161,23 +159,19 @@ spec:
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
 
-    # ----------------- PASS-THROUGH GATE STEP -----------------
-    - name: pass-through # Template definition for the gate
-      container:
-        image: alpine:latest # Small utility image
-        command: [echo, "Data preparation/mitigation path complete."]
 
-    # ----------------- DATA SPLITTING STEP -----------------
+
+    # Step 6: Split the dataset into train/test/validation sets
     - name: split-data
       inputs:
         parameters:
           - name: in_bucket
-          - name: in_key          # This key will point to the potentially overwritten data
-          - name: out_bucket # For splits
+          - name: in_key
+          - name: out_bucket
           - name: train_key
           - name: test_key
           - name: val_key
-          - name: target_col # Accepts target column name
+          - name: target_col
       container:
         image: step-split-data:latest
         imagePullPolicy: Never
@@ -199,7 +193,7 @@ spec:
           - name: AWS_SECRET_ACCESS_KEY
             valueFrom: { secretKeyRef: { name: minio-secrets, key: rootPassword } }
 
-    # ================= PIPELINE DAG DEFINITION =================
+    # DAG: Define the full pipeline and task dependencies
     - name: data-pipeline-dag
       dag:
         tasks:
@@ -223,21 +217,21 @@ spec:
                   value: "{{workflow.parameters.input-key}}"
                 - name: out_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: out_key # Argument passed TO preprocess template
+                - name: out_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
 
-          - name: initial-bias-check # Task invocation
-            template: check-bias # Calls the check-bias template
+          - name: initial-bias-check
+            template: check-bias
             dependencies: [preprocess]
             arguments:
               parameters:
                 - name: p_in_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: p_in_key # Construct key
+                - name: p_in_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-                - name: p_out_bucket # Bucket for the initial report
+                - name: p_out_bucket
                   value: "{{workflow.parameters.reports-bucket}}"
-                - name: p_report_key # Key for the initial report
+                - name: p_report_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.bias-report-key-suffix}}"
                 - name: p_sensitive_col
                   value: "{{workflow.parameters.sensitive-features}}"
@@ -250,43 +244,39 @@ spec:
                 - name: p_bias_threshold
                   value: "{{workflow.parameters.bias-threshold}}"
 
-          # --- Mitigation Path (Conditional) ---
-          - name: reduction # Task name
-            template: reduction-bias # Template name for mitigation
+          - name: reduction
+            template: reduction-bias
             dependencies: [initial-bias-check]
-            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'" # Corrected quoting
+            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'"
             arguments:
               parameters:
-                - name: p_in_bucket # Read from processed bucket
+                - name: p_in_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: p_in_key # Read the key constructed previously
+                - name: p_in_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-                - name: p_out_bucket # Write back to processed bucket
+                - name: p_out_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: p_out_key # OVERWRITE the same key
+                - name: p_out_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
                 - name: p_sensitive_col
                   value: "{{workflow.parameters.sensitive-features}}"
                 - name: p_target_col
                   value: "{{workflow.parameters.target-column}}"
 
-         
-
-          # --- Final Bias Check (Conditional) ---
-          - name: final-bias-check # Runs only if mitigation happened
-            template: check-bias # Use the same check-bias template
-            dependencies: [reduction] # Run after the gate
-            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'" # Corrected quoting
+          - name: final-bias-check
+            template: check-bias
+            dependencies: [reduction]
+            when: "{{tasks.initial-bias-check.outputs.parameters.bias-status}} != 'Passed'"
             arguments:
               parameters:
                 - name: p_in_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: p_in_key # Reads the potentially overwritten processed key
+                - name: p_in_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-                - name: p_out_bucket # Bucket for the final report
+                - name: p_out_bucket
                   value: "{{workflow.parameters.reports-bucket}}"
-                - name: p_report_key # Use the specific suffix for reduction report
-                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.reduction-bias-report-key-suffix}}" # Corrected suffix
+                - name: p_report_key
+                  value: "{{workflow.parameters.input-key}}{{workflow.parameters.reduction-bias-report-key-suffix}}"
                 - name: p_sensitive_col
                   value: "{{workflow.parameters.sensitive-features}}"
                 - name: p_group_value
@@ -298,17 +288,16 @@ spec:
                 - name: p_bias_threshold
                   value: "{{workflow.parameters.bias-threshold}}"
 
-          # --- Split Data ---
-          - name: split # Task name for splitting
+          - name: split
             template: split-data
-            dependencies: [final-bias-check] # Depend on the gate
+            dependencies: [final-bias-check]
             arguments:
               parameters:
                 - name: in_bucket
                   value: "{{workflow.parameters.processed-bucket}}"
-                - name: in_key # Read the potentially overwritten processed key
+                - name: in_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.processed-key-suffix}}"
-                - name: out_bucket # Feature store bucket
+                - name: out_bucket
                   value: "{{workflow.parameters.feature-bucket}}"
                 - name: train_key
                   value: "{{workflow.parameters.input-key}}{{workflow.parameters.train-key-suffix}}"

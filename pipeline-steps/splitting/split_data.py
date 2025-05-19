@@ -15,49 +15,43 @@ def split_data(in_bucket, in_key, out_bucket, train_key, test_key, val_key, targ
         "s3", endpoint_url=endpoint_url, aws_access_key_id=access_key, aws_secret_access_key=secret_key
     )
 
-    # Load processed data
     obj = s3_client.get_object(Bucket=in_bucket, Key=in_key)
     in_buffer = BytesIO(obj['Body'].read())
     df = pd.read_parquet(in_buffer)
     print("Processed data loaded.")
 
-    # --- Splitting Logic ---
+    # Split into features and target
     X = df.drop(target_col, axis=1)
     y = df[target_col]
 
-    # Split into Train + Temp (Val+Test)
-    # REMOVED stratify=y
+    # First split: train and temp
     X_train, X_temp, y_train, y_temp = train_test_split(
         X, y, test_size=(test_size + val_size), random_state=random_state
     )
 
-    # Split Temp into Val and Test
-    # Handle edge case where temp set might be very small or empty if sizes are large
-    if X_temp.shape[0] > 1: # Need at least 2 samples to split further
-         relative_test_size = test_size / (test_size + val_size)
-         # REMOVED stratify=y_temp
-         X_val, X_test, y_val, y_test = train_test_split(
-             X_temp, y_temp, test_size=relative_test_size, random_state=random_state
-         )
+    # Second split: val and test
+    if X_temp.shape[0] > 1:
+        relative_test_size = test_size / (test_size + val_size)
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_temp, y_temp, test_size=relative_test_size, random_state=random_state
+        )
     elif X_temp.shape[0] == 1:
-        # Cannot split 1 sample, assign it arbitrarily (e.g., to validation)
-        print("Warning: Only 1 sample remaining for val/test split. Assigning to validation set.")
-        X_val, X_test = X_temp, pd.DataFrame(columns=X_temp.columns) # Empty test set
-        y_val, y_test = y_temp, pd.Series(dtype=y_temp.dtype)      # Empty test set
-    else: # 0 samples left
-         print("Warning: 0 samples remaining for val/test split.")
-         X_val, X_test = pd.DataFrame(columns=X.columns), pd.DataFrame(columns=X.columns)
-         y_val, y_test = pd.Series(dtype=y.dtype), pd.Series(dtype=y.dtype)
-
+        print("Only 1 sample in temp split. Assigning to validation set.")
+        X_val, X_test = X_temp, pd.DataFrame(columns=X_temp.columns)
+        y_val, y_test = y_temp, pd.Series(dtype=y_temp.dtype)
+    else:
+        print("No samples in temp split.")
+        X_val, X_test = pd.DataFrame(columns=X.columns), pd.DataFrame(columns=X.columns)
+        y_val, y_test = pd.Series(dtype=y.dtype), pd.Series(dtype=y.dtype)
 
     print(f"Train shape: {X_train.shape}, Val shape: {X_val.shape}, Test shape: {X_test.shape}")
 
-    # --- Save Splits ---
-    # Combine features and target for each split before saving
+    # Combine features and target
     train_df = pd.concat([X_train, y_train], axis=1)
     val_df = pd.concat([X_val, y_val], axis=1)
     test_df = pd.concat([X_test, y_test], axis=1)
-    # Limit rows for testing purposes
+
+    # Optional: sample down large splits
     MAX_TRAIN_ROWS = 5000
     MAX_VAL_ROWS = 2000
     MAX_TEST_ROWS = 2000
@@ -66,10 +60,10 @@ def split_data(in_bucket, in_key, out_bucket, train_key, test_key, val_key, targ
     val_df = val_df.sample(n=min(MAX_VAL_ROWS, len(val_df)), random_state=random_state)
     test_df = test_df.sample(n=min(MAX_TEST_ROWS, len(test_df)), random_state=random_state)
 
-    print(f"📉 Sampled datasets: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
+    print(f"Sampled: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")
 
+    # Save each split
     for df_split, key in zip([train_df, val_df, test_df], [train_key, val_key, test_key]):
-        # Avoid saving empty dataframes if splits resulted in zero rows
         if not df_split.empty:
             out_buffer = BytesIO()
             df_split.to_parquet(out_buffer, index=False)
@@ -77,9 +71,7 @@ def split_data(in_bucket, in_key, out_bucket, train_key, test_key, val_key, targ
             s3_client.put_object(Bucket=out_bucket, Key=key, Body=out_buffer)
             print(f"Saved s3://{out_bucket}/{key}")
         else:
-            print(f"Skipped saving empty split for s3://{out_bucket}/{key}")
-
-
+            print(f"Skipped empty split for s3://{out_bucket}/{key}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
