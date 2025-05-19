@@ -50,7 +50,7 @@ cd <repository-name>
     
 
 
-Use code with caution. Markdown
+
 
 Minikube starten:
 
@@ -304,7 +304,7 @@ Verzeichnisstruktur
     
 
 
-Use code with caution. Text
+
 
 Troubleshooting
 
