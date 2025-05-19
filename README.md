@@ -49,9 +49,9 @@ cd <repository-name>
 
     
 
-IGNORE_WHEN_COPYING_START
+
 Use code with caution. Markdown
-IGNORE_WHEN_COPYING_END
+
 Minikube starten:
 
       
@@ -59,9 +59,9 @@ minikube start --memory 6g --cpus 4 # Passe Ressourcen bei Bedarf an
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 Namespace für Argo erstellen:
 
       
@@ -69,9 +69,9 @@ kubectl create namespace argo
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 MinIO im argo-Namespace bereitstellen:
 
     Manifeste anpassen: Stelle sicher, dass in minikube-setup/minio-deployment.yaml und minikube-setup/minio-service.yaml alle Ressourcen (Deployment, PersistentVolumeClaim, Service) namespace: argo unter metadata: haben.
@@ -86,10 +86,10 @@ MinIO im argo-Namespace bereitstellen:
 
         
 
-    IGNORE_WHEN_COPYING_START
+    
 
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
 
 Manifeste anwenden:
 
@@ -99,10 +99,10 @@ kubectl apply -f minikube-setup/minio-service.yaml
 
     
 
-IGNORE_WHEN_COPYING_START
 
-    Use code with caution. Bash
-    IGNORE_WHEN_COPYING_END
+
+    
+    
 
     Überprüfen: Warte, bis der MinIO-Pod läuft (kubectl get pods -n argo -l app=minio -w).
 
@@ -114,9 +114,9 @@ kubectl get pods -n argo -w # Warte, bis alle Argo-Pods laufen
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 RBAC-Regeln für Workflow-Tasks anwenden:
 
 Die Dateien workflow-task-result-role.yaml und workflow-task-result-rolebinding.yaml sollten im Repository vorhanden sein und den Namespace argo spezifizieren.
@@ -127,9 +127,9 @@ kubectl apply -f workflow-task-result-rolebinding.yaml
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 Docker-Images bauen (in Minikube-Umgebung):
 
 WICHTIG: Verbinde deine Shell mit Minikubes Docker-Daemon:
@@ -141,9 +141,9 @@ eval $(minikube -p minikube docker-env) # Linux/macOS
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 
 Baue die Images für jeden Schritt (führe dies nach jeder Codeänderung erneut aus):
 
@@ -162,9 +162,9 @@ cd ../.. # Zurück zum Hauptverzeichnis
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 MinIO Client (mc) konfigurieren:
 
 (Verwende Port-Forwarding oder NodePort, um dich mit dem MinIO-Service im argo-Namespace zu verbinden).
@@ -176,9 +176,9 @@ kubectl port-forward -n argo service/minio-service 9000:9000
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 
 Im Hauptterminal:
 
@@ -188,9 +188,9 @@ mc ls minikube # Zum Testen
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 MinIO Buckets erstellen:
 
       
@@ -201,9 +201,9 @@ mc mb minikube/feature-store
 
     
 
-IGNORE_WHEN_COPYING_START
-Use code with caution. Bash
-IGNORE_WHEN_COPYING_END
+
+
+
 Verwendung
 
     Daten vorbereiten & hochladen:
@@ -219,10 +219,10 @@ Verwendung
 
             
 
-        IGNORE_WHEN_COPYING_START
+        
 
-    Use code with caution. Bash
-    IGNORE_WHEN_COPYING_END
+    
+    
 
 Workflow starten:
 
@@ -240,10 +240,10 @@ Workflow starten:
 
         
 
-    IGNORE_WHEN_COPYING_START
+    
 
-        Use code with caution. Bash
-        IGNORE_WHEN_COPYING_END
+        
+        
 
     Workflow überwachen:
 
@@ -303,9 +303,9 @@ Verzeichnisstruktur
 
     
 
-IGNORE_WHEN_COPYING_START
+
 Use code with caution. Text
-IGNORE_WHEN_COPYING_END
+
 Troubleshooting
 
     ErrImageNeverPull: Sicherstellen, dass eval $(minikube docker-env) (oder der PowerShell-Äquivalent) vor docker build ausgeführt wurde. Image-Namen/Tags in YAML und Build müssen exakt übereinstimmen.
