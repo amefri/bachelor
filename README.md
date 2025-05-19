@@ -37,7 +37,7 @@ graph LR
     end
 
     subgraph K8sCluster ["Kubernetes Cluster (Minikube - 'argo' Namespace)"]
-        UP -- Stores raw data --> MINIO(MinIO Service & Pod \n [PVC: minio-pv-claim])
+        UP -- Stores raw data --> MINIO("MinIO Service & Pod <br/> [PVC: minio-pv-claim]")
         MINIO -- Stores data in --> RAW_BUCKET(raw-data Bucket)
 
         subgraph ArgoPipeline ["Argo Workflow Pipeline ('argo' Namespace)"]
@@ -54,13 +54,13 @@ graph LR
             WF --> STEP_VALIDATE
             STEP_VALIDATE -- Validated Data (Implicit via S3) --> STEP_PREPROCESS
             STEP_PREPROCESS -- Processed Data (S3 Path) --> STEP_INITIAL_BIAS
-            STEP_INITIAL_BIAS -- Bias Status (Output Param) & Report (S3) --> DECISION{Workflow Logic}
+            STEP_INITIAL_BIAS -- "Bias Status (Output Param) <br/> & Report (S3)" --> DECISION{Workflow Logic}
 
-            DECISION -- Status != 'Passed' --> STEP_REDUCTION
-            STEP_REDUCTION -- Mitigated Data (S3 Path, Overwrites) --> STEP_FINAL_BIAS
-            STEP_FINAL_BIAS -- Final Report (S3) --> PATH_A{Path A}
+            DECISION -- "Status != 'Passed'" --> STEP_REDUCTION
+            STEP_REDUCTION -- "Mitigated Data (S3 Path, Overwrites)" --> STEP_FINAL_BIAS
+            STEP_FINAL_BIAS -- "Final Report (S3)" --> PATH_A{Path A}
 
-            DECISION -- Status == 'Passed' --> PATH_B{Path B}
+            DECISION -- "Status == 'Passed'" --> PATH_B{Path B}
 
             subgraph DataPathAfterBiasLogic ["Data Path for Splitting"]
                 direction LR
@@ -68,7 +68,7 @@ graph LR
                 PATH_B --> MERGE_POINT
             end
 
-            MERGE_POINT -- Final Processed Data (S3 Path) --> STEP_SPLIT
+            MERGE_POINT -- "Final Processed Data (S3 Path)" --> STEP_SPLIT
             
             STEP_PREPROCESS -- Writes Processed --> PROC_BUCKET(processed-data Bucket)
             STEP_INITIAL_BIAS -- Writes Report --> RPT_BUCKET_INITIAL(reports Bucket - Initial)
