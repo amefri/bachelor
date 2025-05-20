@@ -30,9 +30,9 @@ Alle Artefakte (verarbeitete Daten, Bias-Reports, Datensplits) werden in designi
 ## Voraussetzungen
 
 * Docker  
-* Minikube (v1.20+ empfohlen)  
+* Minikube  
 * kubectl  
-* Argo CLI (v3.x)  
+* Argo CLI  
 * MinIO Client (`mc`)  
 * Git
 
